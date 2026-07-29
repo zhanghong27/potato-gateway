@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
+
+from potato_gateway.config import Settings
+from potato_gateway.main import create_app
+
+
+TEST_TOKEN = "a" * 64
+
+
+@pytest.fixture
+def client() -> TestClient:
+    settings = Settings(POTATO_GATEWAY_TOKEN=TEST_TOKEN)
+    return TestClient(create_app(settings))
+
+
+def test_health_without_authentication(client: TestClient) -> None:
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_status_without_authorization_header_returns_401(client: TestClient) -> None:
+    response = client.get("/api/status")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+
+
+def test_status_with_wrong_token_returns_401(client: TestClient) -> None:
+    response = client.get(
+        "/api/status",
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
+
+
+def test_status_with_correct_token_returns_200(client: TestClient) -> None:
+    response = client.get(
+        "/api/status",
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_status_success_response_has_expected_structure(client: TestClient) -> None:
+    response = client.get(
+        "/api/status",
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+
+    payload = response.json()
+    assert payload == {
+        "service": {
+            "name": "potato-gateway",
+            "status": "running",
+            "version": "0.1.0",
+        },
+        "potato_hub": {
+            "status": "unknown",
+            "message": "Potato Hub integration is not configured yet",
+        },
+        "agents": [
+            {"id": "researcher", "display_name": "薯博士", "status": "unknown"},
+            {"id": "creator", "display_name": "清蒸土豆", "status": "unknown"},
+            {"id": "critic", "display_name": "酸辣土豆丝", "status": "unknown"},
+        ],
+    }
+
+
+def test_status_success_response_does_not_contain_token(client: TestClient) -> None:
+    response = client.get(
+        "/api/status",
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+
+    assert TEST_TOKEN not in response.text
+
+
+def test_empty_token_configuration_fails_fast() -> None:
+    with pytest.raises(ValidationError, match="POTATO_GATEWAY_TOKEN"):
+        Settings(POTATO_GATEWAY_TOKEN="")
