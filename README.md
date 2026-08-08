@@ -1,101 +1,181 @@
 # Potato Gateway
 
-Potato Gateway is the first-phase unified HTTP API entrance for Potato Hub, future ChatGPT GPT Actions, Hermes Agent, and Codex workflows.
-
-This service is intentionally small. It does not replace the existing Potato Hub server and does not call its real task or message APIs yet.
+Potato Gateway is the unified HTTP API entrance for Potato Hub, ChatGPT GPT Actions, Hermes Agent, and future Codex workflows. It is an independent FastAPI service and does not replace or modify the existing Potato Hub process.
 
 ## Current Capabilities
 
-- `GET /health` returns a minimal process health response without authentication.
-- `GET /api/status` returns structured service, Potato Hub, and Agent status with Bearer Token authentication.
-- Configuration is loaded from environment variables through Pydantic Settings.
-- Tests cover authentication, response shape, token secrecy, and missing token validation.
+- `GET /health`: public process health check.
+- `GET /api/status`: authenticated Gateway, Potato Hub, and real Runner heartbeat status.
+- `GET /api/agents/{agent_id}/profile`: authenticated, read-only Hermes Profile and Prompt fingerprint for four Agents.
+- `POST /api/calibrations`: create an idempotent `manual` or `hub` calibration session for the three calibratable Agents.
+- `GET /api/calibrations/{session_id}`: read a Session and all recorded Turns.
+- `POST /api/calibrations/{session_id}/turns`: append an idempotent manual Turn.
+- `GET /api/agents/{agent_id}/calibrations`: list an Agent's Sessions newest first.
+- Asynchronous calibration execution: queue a real Agent turn, then poll by execution ID.
+- Video workflow Actions: create, inspect, message, approve, summarize Assets, and read Reviews.
+- Immutable Prompt candidates plus an authenticated admin-only publish/rollback path.
+- Bearer Token authentication, strict Pydantic responses, path containment checks, and safe request logging.
 
-Current `/api/status` 中的 Potato Hub 和 Agent 状态是占位状态，不代表真实在线情况。
+The profile endpoint only returns an explicit whitelist: Profile name, load status, model provider/name, Skill names, whether Memory is enabled, Prompt version information, and structured calibration state. It does not return Prompt text, raw Hermes configuration, credentials, environment variables, or local paths.
 
-## Not Implemented Yet
+## Agent Calibration
 
-- Real Hermes task APIs
-- Feishu bot integration
-- Codex CLI integration
-- Database access
-- MCP Server
-- Video generation workflow
-- Automatic deployment
-- Tailscale Funnel or reverse proxy configuration
+In this project, calibration means iteratively testing and adjusting Prompt, Skills, workflow, tool use, and evaluation criteria. It is not model training or fine-tuning.
+
+A calibration Session stores a goal, acceptance criteria, a snapshot of the current Prompt hash, and an ordered set of Turns. Session state in this phase is limited to `calibrating`, `blocked`, or `closed`.
+
+`transport: manual` only records caller-supplied content. `transport: hub` uses the asynchronous Hermes Runner: `executeCalibrationTurn` immediately returns an execution ID, and `getCalibrationTurn` later synchronizes the real response and Asset IDs from Hub. A completed Hub response is also appended to the isolated calibration Session.
+
+Fixed test suites live in `config/calibration-suites.yaml`: creator has 3 baseline cases; researcher and critic have 5 each. The global gate is zero hard errors and at least 80/100, but only the user can accept a candidate Prompt. ChatGPT may record a structured critique and create a candidate; it cannot publish one through GPT Actions.
+
+`getAgentProfile` now prioritizes active SQLite Sessions. The latest open Session maps to `calibrating` or `blocked`; if only closed Sessions exist, Profile status is `untracked` because formal evaluation and Prompt promotion are not implemented yet. When SQLite contains no Session for an Agent, the previous `runtime/calibration/{agent_id}.json` format remains available as a compatibility fallback.
+
+`untracked` means the Gateway has no active structured calibration result. It does not imply that the Agent is offline, untested, or unstable, and it never means `stable`.
+
+## Agent Registry
+
+The server-side registry is [config/agents.yaml](config/agents.yaml). HTTP Agent IDs map to real Hermes Profiles there; clients cannot submit Profile paths, Prompt filenames, or arbitrary filesystem paths.
+
+Each registration contains:
+
+- `display_name` and `role` for the public Agent identity.
+- `profile_name` for the safe public Hermes Profile name.
+- `hermes_profile`, a relative path contained by `POTATO_HERMES_HOME`.
+- `prompt_files`, the only Prompt sources the Gateway may read and hash.
+- Optional `prompt_metadata_file`, the only explicit version metadata source the Gateway may read.
+
+Without verified metadata, Prompt version is a stable SHA-256 content hash after UTF-8, newline, and Unicode normalization. `version` is returned as `sha256:<first-12-hex>`. If metadata is declared, it must use schema version 1, list the same source files, and contain the full matching SHA-256 hash before its version is accepted.
 
 ## Environment
 
-This project uses Python 3.11+ and `uv`.
+This project uses Python 3.11+ and `uv`:
 
 ```bash
-cd potato-gateway
+cd /Users/zhanghong/.hermes/potato-gateway
 uv sync
 ```
 
-Create a strong token for local use:
+Generate a strong local token:
 
 ```bash
 export POTATO_GATEWAY_TOKEN="$(openssl rand -hex 32)"
 ```
 
-Optional environment variables:
+Supported settings:
 
 ```bash
 export POTATO_GATEWAY_HOST=127.0.0.1
 export POTATO_GATEWAY_PORT=8765
 export POTATO_GATEWAY_LOG_LEVEL=INFO
+export POTATO_HERMES_HOME=/Users/zhanghong/.hermes
+export POTATO_AGENT_REGISTRY_PATH=/Users/zhanghong/.hermes/potato-gateway/config/agents.yaml
+export POTATO_CALIBRATION_STATE_DIR=/Users/zhanghong/.hermes/potato-gateway/runtime/calibration
+export POTATO_GATEWAY_DB_PATH=/Users/zhanghong/.hermes/potato-gateway/runtime/potato-gateway.db
+export POTATO_HUB_URL=http://127.0.0.1:8787
+# POTATO_HUB_TOKEN may be omitted locally; Gateway reads potato-relay/.hub-token.
 ```
 
-Copy `.env.example` only as a template. Do not commit a real `.env` or real token.
+The SQLite database defaults to `runtime/potato-gateway.db`. It uses WAL, foreign keys, a busy timeout, schema migrations, and transactional idempotency constraints. Database, WAL, and shared-memory files are ignored by Git.
+
+Use `.env.example` only as a template. Never commit a real `.env`, token, database, or calibration record containing sensitive material.
 
 ## Start
 
 ```bash
-cd potato-gateway
-uv run uvicorn potato_gateway.main:app \
-  --host "${POTATO_GATEWAY_HOST:-127.0.0.1}" \
-  --port "${POTATO_GATEWAY_PORT:-8765}"
-```
-
-You can also start it through the package entrypoint, which reads `POTATO_GATEWAY_HOST`, `POTATO_GATEWAY_PORT`, and `POTATO_GATEWAY_LOG_LEVEL` directly:
-
-```bash
+cd /Users/zhanghong/.hermes/potato-gateway
 uv run potato-gateway
 ```
 
-The default host is `127.0.0.1`. Do not change it to `0.0.0.0` unless the exposure path, authentication, logs, and documentation endpoints have been reviewed.
+The default listener is `127.0.0.1:8765`. Do not change it to `0.0.0.0` without reviewing the exposure path, authentication, logs, and documentation endpoints.
 
-Swagger/OpenAPI docs remain enabled for local development. If this service is exposed publicly later through Tailscale Funnel, HTTPS reverse proxy, or another route, reevaluate whether `/docs`, `/redoc`, and `/openapi.json` should be disabled or protected.
+Swagger/OpenAPI docs remain enabled for local development. Because this installation is exposed through Tailscale Funnel, reassess whether `/docs`, `/redoc`, and `/openapi.json` should be disabled or protected before broadening access. Funnel or reverse-proxy configuration is outside this change.
 
-## Verify
+## Query Locally
 
 ```bash
-curl http://127.0.0.1:8765/health
+curl -sS http://127.0.0.1:8765/health
 ```
 
 ```bash
-curl http://127.0.0.1:8765/api/status \
+curl -sS http://127.0.0.1:8765/api/status \
   -H "Authorization: Bearer ${POTATO_GATEWAY_TOKEN}"
 ```
 
-Missing or incorrect Bearer Tokens return `401 Unauthorized`.
+```bash
+curl -sS http://127.0.0.1:8765/api/agents/critic/profile \
+  -H "Authorization: Bearer ${POTATO_GATEWAY_TOKEN}" \
+  | python3 -m json.tool
+```
+
+Create a Hub calibration Session:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8765/api/calibrations \
+  -H "Authorization: Bearer ${POTATO_GATEWAY_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_request_id": "cal-create-researcher-001",
+    "agent_id": "researcher",
+    "transport": "hub",
+    "goal": "测试薯博士对近期热点和正宗A股标的的调研能力",
+    "acceptance_criteria": ["引用信息来源", "说明股票与产业链的实际关系"]
+  }'
+```
+
+Save the returned `session_id`, then record a Turn:
+
+```bash
+curl -sS -X POST \
+  "http://127.0.0.1:8765/api/calibrations/${SESSION_ID}/turns" \
+  -H "Authorization: Bearer ${POTATO_GATEWAY_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_turn_id": "turn-researcher-001",
+    "actor": "commander",
+    "kind": "instruction",
+    "content": "调研最近两周商业航天的重要事件。"
+  }'
+```
+
+Query the Session and Agent history:
+
+```bash
+curl -sS "http://127.0.0.1:8765/api/calibrations/${SESSION_ID}" \
+  -H "Authorization: Bearer ${POTATO_GATEWAY_TOKEN}"
+
+curl -sS \
+  "http://127.0.0.1:8765/api/agents/researcher/calibrations?limit=20" \
+  -H "Authorization: Bearer ${POTATO_GATEWAY_TOKEN}"
+```
+
+`client_request_id` and `client_turn_id` are idempotency keys. Retrying the same ID returns the original object instead of inserting another row.
+
+## Query Through Funnel
+
+```bash
+curl -sS \
+  https://zhanghongmac-mini.tail282e0b.ts.net/api/agents/critic/profile \
+  -H "Authorization: Bearer ${POTATO_GATEWAY_TOKEN}" \
+  | python3 -m json.tool
+```
+
+Use the same calibration paths and JSON bodies with the Funnel base URL to access these endpoints over HTTPS.
+
+The Funnel terminates HTTPS while Gateway continues to listen only on localhost. This repository does not create or modify Funnel configuration.
 
 ## Test
 
 ```bash
-cd potato-gateway
+cd /Users/zhanghong/.hermes/potato-gateway
 uv run pytest
 ```
 
-## Security Notes
+Tests use temporary Hermes directories and do not modify the three real Profiles.
 
-- Token is read only from `POTATO_GATEWAY_TOKEN`.
-- Empty, short, and obvious placeholder tokens are rejected at startup.
-- The service defaults to local-only `127.0.0.1`.
-- Authentication uses constant-time token comparison.
-- Request logs include method, path, status code, and latency only.
-- Authorization headers, tokens, file paths, environment variables, and system details are not returned by API responses.
-- No command execution, file reading, database, Hermes, Feishu, Codex, MCP, or video-generation endpoint is exposed in this phase.
+## Safety Boundaries
 
-Future HTTPS exposure should be handled with Tailscale Funnel or a reverse proxy, but this phase does not configure either.
+- GPT Actions never return local paths, credentials, complete Prompt content, or unapproved logs.
+- Prompt candidates are inert until the authenticated admin publish endpoint receives the exact candidate hash; the previous active version becomes a rollback target.
+- `engineer` is visible in status/profile and workflow APIs but is excluded from chat calibration.
+- Hub is the workflow source of truth. Gateway retries use idempotency keys and do not duplicate Agent execution or paid media generation.
+- Manual chats, file timestamps, Git history, or Agent self-reports never imply a passed calibration or a published Prompt.

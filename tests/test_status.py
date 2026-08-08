@@ -24,6 +24,18 @@ def test_health_without_authentication(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_versioned_action_schema_is_public_and_not_cached(client: TestClient) -> None:
+    response = client.get("/potato-actions-v0.2.4.yaml")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/yaml")
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert response.headers["x-potato-schema-build"] == "calibration-review-3.1-20260807"
+    assert response.text.startswith("openapi: 3.1.0")
+    assert "version: 0.2.4" in response.text
+    assert "PublicObjectResponse" not in response.text
+
+
 def test_status_without_authorization_header_returns_401(client: TestClient) -> None:
     response = client.get("/api/status")
 
@@ -61,16 +73,17 @@ def test_status_success_response_has_expected_structure(client: TestClient) -> N
         "service": {
             "name": "potato-gateway",
             "status": "running",
-            "version": "0.1.0",
+                "version": "0.2.0",
         },
         "potato_hub": {
-            "status": "unknown",
-            "message": "Potato Hub integration is not configured yet",
+            "status": "offline",
+            "message": "Potato Hub is not reachable",
         },
         "agents": [
             {"id": "researcher", "display_name": "薯博士", "status": "unknown"},
             {"id": "creator", "display_name": "清蒸土豆", "status": "unknown"},
             {"id": "critic", "display_name": "酸辣土豆丝", "status": "unknown"},
+            {"id": "engineer", "display_name": "薯码宝贝", "status": "unknown"},
         ],
     }
 

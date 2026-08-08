@@ -3,3 +3,8 @@
 .pytest_cache/
 __pycache__/
 *.py[cod]
+runtime/calibration/
+runtime/*.db
+runtime/*.db-shm
+runtime/*.db-wal
+runtime/*.log

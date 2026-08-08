@@ -1,0 +1,1864 @@
+openapi: 3.1.0
+
+info:
+  title: Potato Gateway Actions Safe
+  description: >
+    API for checking Hong's Potato multi-agent system, inspecting registered
+    Hermes Agent profiles, running visible multi-agent video workflows, and
+    managing structured calibration sessions.
+  version: 0.2.4
+  x-potato-schema-build: calibration-review-3.1-20260807
+
+servers:
+  - url: https://zhanghongmac-mini.tail282e0b.ts.net
+
+paths:
+  /health:
+    get:
+      operationId: getGatewayHealth
+      summary: Check whether Potato Gateway is running
+      description: >
+        Performs a public process-level health check.
+        It does not report detailed agent or system information.
+      responses:
+        "200":
+          description: Gateway is running
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /api/status:
+    get:
+      operationId: getPotatoSystemStatus
+      summary: Get Potato Hub and agent status
+      description: >
+        Returns the Potato Gateway service status, Potato Hub integration
+        status, and the current known status of each configured agent.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current Potato system status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemStatusResponse"
+        "401":
+          description: Missing or invalid Bearer Token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/agents/{agent_id}/profile:
+    get:
+      operationId: getAgentProfile
+      summary: Get a registered Potato Agent profile
+      description: >
+        Returns only whitelisted Hermes profile fields, a verified Prompt
+        version or content hash, and structured calibration state. It never
+        returns Prompt content, credentials, or local paths.
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          description: Registered Potato Agent ID
+          schema:
+            type: string
+            enum:
+              - researcher
+              - creator
+              - critic
+              - engineer
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Agent profile and calibration state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentProfileResponse"
+        "401":
+          description: Missing or invalid Bearer Token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Agent is not registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Profile, registry, or calibration source is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/calibrations:
+    post:
+      operationId: createCalibrationSession
+      summary: Create a manual or Hub calibration session
+      description: >
+        Creates an idempotent structured calibration session and snapshots the
+        Agent's current Prompt version. Use transport hub before calling
+        executeCalibrationTurn; manual transport does not invoke the Agent.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCalibrationSessionRequest"
+      responses:
+        "201":
+          description: Calibration session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationSession"
+        "200":
+          description: Existing session returned for an idempotent retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationSession"
+        "401":
+          description: Missing or invalid Bearer Token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Agent is not registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Calibration data is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/calibrations/{session_id}:
+    get:
+      operationId: getCalibrationSession
+      summary: Get a calibration session and all turns
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Calibration session with turns in creation order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationSessionDetail"
+        "401":
+          description: Missing or invalid Bearer Token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Calibration session does not exist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Calibration data is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/calibrations/{session_id}/turns:
+    post:
+      operationId: recordCalibrationTurn
+      summary: Record a manual calibration turn
+      description: >
+        Records caller-supplied calibration content. Actor agent means the
+        caller is recording an Agent response; Gateway does not invoke an Agent.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordCalibrationTurnRequest"
+      responses:
+        "201":
+          description: Calibration turn recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationTurn"
+        "200":
+          description: Existing turn returned for an idempotent retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationTurn"
+        "401":
+          description: Missing or invalid Bearer Token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Calibration session does not exist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Session is not writable or turn ID conflicts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Calibration data is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/agents/{agent_id}/calibrations:
+    get:
+      operationId: listAgentCalibrations
+      summary: List an Agent's calibration sessions
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - researcher
+              - creator
+              - critic
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Sessions ordered by creation time descending
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentCalibrationList"
+        "401":
+          description: Missing or invalid Bearer Token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Agent is not registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Calibration data is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/workflows/video:
+    post:
+      operationId: createVideoWorkflow
+      summary: Create an observable multi-agent video workflow
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVideoWorkflowRequest"
+      responses:
+        "201":
+          description: Workflow created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateWorkflowResponse"
+        "200":
+          description: Existing workflow returned for an idempotent retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateWorkflowResponse"
+        "401":
+          description: Missing or invalid Bearer Token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Potato Hub is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/workflows/{workflow_id}:
+    get:
+      operationId: getWorkflow
+      summary: Get workflow state, work items, approvals, and reviews
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Safe workflow detail without local paths
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowResponse"
+        "404":
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/workflows/{workflow_id}/events:
+    get:
+      operationId: listWorkflowEvents
+      summary: List the visible event history for a workflow
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Ordered workflow events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowEventsResponse"
+
+  /api/workflows/{workflow_id}/messages:
+    post:
+      operationId: sendWorkflowMessage
+      summary: Add a user instruction to a running workflow
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowMessageRequest"
+      responses:
+        "200":
+          description: Message recorded in the workflow Session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowMessageResponse"
+
+  /api/approvals/{approval_id}/decision:
+    post:
+      operationId: decideWorkflowApproval
+      summary: Approve or reject a pending workflow action
+      parameters:
+        - name: approval_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalDecisionRequest"
+      responses:
+        "200":
+          description: Approval decision recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalResponse"
+
+  /api/assets/{asset_id}/summary:
+    get:
+      operationId: getAssetSummary
+      summary: Get a safe Asset summary and download route
+      parameters:
+        - name: asset_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Asset summary without local filesystem paths
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetSummaryResponse"
+
+  /api/reviews/{review_id}:
+    get:
+      operationId: getVideoReview
+      summary: Get a structured video review
+      parameters:
+        - name: review_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Structured review and evidence Asset IDs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewResponse"
+
+  /api/calibrations/{session_id}/executions:
+    post:
+      operationId: executeCalibrationTurn
+      summary: Queue a real asynchronous Agent calibration turn
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecuteCalibrationTurnRequest"
+      responses:
+        "202":
+          description: Agent turn queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationExecution"
+        "200":
+          description: Existing execution returned for an idempotent retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationExecution"
+
+  /api/calibrations/{session_id}/executions/{execution_id}:
+    get:
+      operationId: getCalibrationTurn
+      summary: Poll an asynchronous calibration turn
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: execution_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current execution state and real Agent response when complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationExecution"
+
+  /api/calibrations/{session_id}/executions/{execution_id}/reviews:
+    post:
+      operationId: createCalibrationReview
+      summary: Ask the critic to review a completed creator calibration video
+      description: >
+        Manually queues an independent critic review. The same idempotency key
+        returns the existing review and never creates duplicate frame extraction.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: execution_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCalibrationReviewRequest"
+      responses:
+        "202":
+          description: Calibration review queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationReview"
+        "200":
+          description: Existing idempotent review returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationReview"
+        "409":
+          description: The execution is not an eligible completed creator calibration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/calibrations/{session_id}/executions/{execution_id}/reviews/{review_id}:
+    get:
+      operationId: getCalibrationReview
+      summary: Poll the critic calibration review and get its structured report
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: execution_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: review_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current review state and report when complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationReview"
+
+  /api/calibrations/{session_id}/reviews/{review_id}/evidence:
+    get:
+      operationId: getCalibrationEvidence
+      summary: Get critic evidence descriptions and temporary image links
+      description: >
+        Returns shot timestamps, critic text descriptions, Asset IDs, and
+        session-bound signed image links valid for 15 minutes. Contact sheets
+        are also listed in openaiFileResponse for GPT Preview compatibility testing.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: review_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Calibration evidence safe for GPT Actions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationEvidence"
+
+  /api/agents/{agent_id}/prompt-versions:
+    post:
+      operationId: createPromptCandidate
+      summary: Store a candidate Prompt version without activating it
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [researcher, creator, critic]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePromptCandidateRequest"
+      responses:
+        "201":
+          description: Candidate created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromptVersionSummary"
+    get:
+      operationId: listPromptVersions
+      summary: List Prompt version metadata without Prompt content
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [researcher, creator, critic]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Prompt versions newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agent_id, versions]
+                properties:
+                  agent_id:
+                    type: string
+                  versions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PromptVersionSummary"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-token
+
+  schemas:
+    ServiceStatus:
+      type: object
+      required:
+        - name
+        - status
+        - version
+      properties:
+        name:
+          type: string
+          example: potato-gateway
+        status:
+          type: string
+          example: running
+        version:
+          type: string
+          example: 0.2.0
+
+    PotatoHubStatus:
+      type: object
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          example: online
+        message:
+          type: string
+          example: Potato Hub is reachable
+
+    AgentStatus:
+      type: object
+      required:
+        - id
+        - display_name
+        - status
+      properties:
+        id:
+          type: string
+          enum:
+            - researcher
+            - creator
+            - critic
+            - engineer
+        display_name:
+          type: string
+        status:
+          type: string
+          enum:
+            - online
+            - offline
+            - busy
+            - calibrating
+            - error
+            - unknown
+
+    SystemStatusResponse:
+      type: object
+      required:
+        - service
+        - potato_hub
+        - agents
+      properties:
+        service:
+          $ref: "#/components/schemas/ServiceStatus"
+        potato_hub:
+          $ref: "#/components/schemas/PotatoHubStatus"
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentStatus"
+
+    AgentIdentity:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - display_name
+        - role
+      properties:
+        id:
+          type: string
+          enum: [researcher, creator, critic, engineer]
+        display_name:
+          type: string
+        role:
+          type: string
+
+    HermesProfile:
+      type: object
+      additionalProperties: false
+      required:
+        - provider
+        - profile_name
+        - load_status
+        - model_provider
+        - model_name
+        - skills
+        - memory_enabled
+      properties:
+        provider:
+          type: string
+          enum: [hermes]
+        profile_name:
+          type: string
+        load_status:
+          type: string
+          enum: [loaded]
+        model_provider:
+          type: string
+        model_name:
+          type: string
+        skills:
+          type: array
+          items:
+            type: string
+        memory_enabled:
+          type: boolean
+
+    PromptVersion:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - version_source
+        - content_sha256
+        - updated_at
+        - source_files
+      properties:
+        version:
+          type: string
+        version_source:
+          type: string
+          enum: [metadata, content_hash]
+        content_sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        updated_at:
+          type: string
+          format: date-time
+        source_files:
+          type: array
+          items:
+            type: string
+
+    LatestEvaluation:
+      type: object
+      additionalProperties: false
+      required:
+        - evaluation_id
+        - score
+        - threshold
+        - result
+      properties:
+        evaluation_id:
+          type: string
+        score:
+          type: number
+        threshold:
+          type: number
+        result:
+          type: string
+          enum: [passed, failed]
+
+    Calibration:
+      type: object
+      additionalProperties: false
+      required:
+        - state
+        - latest_session_id
+        - last_activity_at
+        - current_prompt_version
+        - candidate_prompt_version
+        - latest_evaluation
+        - message
+      properties:
+        state:
+          type: string
+          enum:
+            - untracked
+            - calibrating
+            - evaluating
+            - needs_revision
+            - stable
+            - blocked
+        latest_session_id:
+          type: string
+        last_activity_at:
+          type: string
+          format: date-time
+        current_prompt_version:
+          type: string
+        candidate_prompt_version:
+          type: string
+        latest_evaluation:
+          $ref: "#/components/schemas/LatestEvaluation"
+        message:
+          type: string
+
+    AgentProfileResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - agent
+        - profile
+        - prompt
+        - calibration
+        - observed_at
+      properties:
+        agent:
+          $ref: "#/components/schemas/AgentIdentity"
+        profile:
+          $ref: "#/components/schemas/HermesProfile"
+        prompt:
+          $ref: "#/components/schemas/PromptVersion"
+        calibration:
+          $ref: "#/components/schemas/Calibration"
+        observed_at:
+          type: string
+          format: date-time
+
+    CreateCalibrationSessionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - client_request_id
+        - agent_id
+        - goal
+        - acceptance_criteria
+      properties:
+        client_request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._-]+$"
+        agent_id:
+          type: string
+          enum: [researcher, creator, critic]
+        transport:
+          type: string
+          enum: [manual, hub]
+          default: manual
+        goal:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        acceptance_criteria:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            minLength: 1
+            maxLength: 1000
+
+    RecordCalibrationTurnRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - client_turn_id
+        - actor
+        - kind
+        - content
+      properties:
+        client_turn_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._-]+$"
+        actor:
+          type: string
+          enum: [user, commander, agent, evaluator, system]
+        kind:
+          type: string
+          enum: [instruction, response, critique, note]
+        content:
+          type: string
+          minLength: 1
+          maxLength: 50000
+
+    CalibrationSession:
+      type: object
+      additionalProperties: false
+      required:
+        - session_id
+        - client_request_id
+        - agent_id
+        - state
+        - transport
+        - goal
+        - acceptance_criteria
+        - base_prompt_version
+        - base_prompt_content_sha256
+        - created_at
+        - updated_at
+      properties:
+        session_id:
+          type: string
+        client_request_id:
+          type: string
+        agent_id:
+          type: string
+          enum: [researcher, creator, critic]
+        state:
+          type: string
+          enum: [calibrating, blocked, closed]
+        transport:
+          type: string
+          enum: [manual, hub]
+        goal:
+          type: string
+        acceptance_criteria:
+          type: array
+          items:
+            type: string
+        base_prompt_version:
+          type: string
+        base_prompt_content_sha256:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CalibrationTurn:
+      type: object
+      additionalProperties: false
+      required:
+        - turn_id
+        - session_id
+        - client_turn_id
+        - actor
+        - kind
+        - content
+        - created_at
+      properties:
+        turn_id:
+          type: string
+        session_id:
+          type: string
+        client_turn_id:
+          type: string
+        actor:
+          type: string
+          enum: [user, commander, agent, evaluator, system]
+        kind:
+          type: string
+          enum: [instruction, response, critique, note]
+        content:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CalibrationSessionDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - session_id
+        - client_request_id
+        - agent_id
+        - state
+        - transport
+        - goal
+        - acceptance_criteria
+        - base_prompt_version
+        - base_prompt_content_sha256
+        - created_at
+        - updated_at
+        - turns
+      properties:
+        session_id:
+          type: string
+        client_request_id:
+          type: string
+        agent_id:
+          type: string
+          enum: [researcher, creator, critic]
+        state:
+          type: string
+          enum: [calibrating, blocked, closed]
+        transport:
+          type: string
+          enum: [manual, hub]
+        goal:
+          type: string
+        acceptance_criteria:
+          type: array
+          items:
+            type: string
+        base_prompt_version:
+          type: string
+        base_prompt_content_sha256:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        turns:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalibrationTurn"
+
+    AgentCalibrationList:
+      type: object
+      additionalProperties: false
+      required:
+        - agent_id
+        - sessions
+      properties:
+        agent_id:
+          type: string
+          enum: [researcher, creator, critic]
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalibrationSession"
+
+    CreateVideoWorkflowRequest:
+      type: object
+      additionalProperties: false
+      required: [client_request_id, request]
+      properties:
+        client_request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._-]+$"
+        title:
+          type: string
+          maxLength: 120
+        request:
+          type: string
+          minLength: 1
+          maxLength: 20000
+        requirements:
+          type: object
+          additionalProperties: true
+          properties:
+            duration_seconds:
+              type: integer
+            aspect_ratio:
+              type: string
+            style:
+              type: string
+            audience:
+              type: string
+            must_include:
+              type: array
+              items:
+                type: string
+            notes:
+              type: string
+        asset_ids:
+          type: array
+          maxItems: 50
+          items:
+            type: integer
+            minimum: 1
+        max_revisions:
+          type: integer
+          minimum: 0
+          maximum: 5
+          default: 2
+        handoff_policy:
+          $ref: "#/components/schemas/HandoffPolicy"
+
+    HandoffPolicy:
+      type: object
+      additionalProperties: false
+      properties:
+        research_to_creation:
+          type: string
+          enum: [auto, manual]
+          default: auto
+        creation_to_review:
+          type: string
+          enum: [auto, manual]
+          default: auto
+        review_to_revision:
+          type: string
+          enum: [auto, manual]
+          default: auto
+
+    WorkflowMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        target:
+          type: string
+          enum: [all, user, researcher, creator, critic, engineer]
+          default: all
+        content:
+          type: string
+          minLength: 1
+          maxLength: 20000
+
+    ApprovalDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [approved, rejected]
+        note:
+          type: string
+          maxLength: 4000
+
+    ExecuteCalibrationTurnRequest:
+      type: object
+      additionalProperties: false
+      required: [client_turn_id, instruction]
+      properties:
+        client_turn_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._-]+$"
+        instruction:
+          type: string
+          minLength: 1
+          maxLength: 50000
+
+    CalibrationExecution:
+      type: object
+      additionalProperties: false
+      required:
+        - execution_id
+        - session_id
+        - client_turn_id
+        - agent_id
+        - status
+        - instruction
+        - response
+        - asset_ids
+        - error
+        - hub_job_id
+        - created_at
+        - updated_at
+      properties:
+        execution_id:
+          type: string
+        session_id:
+          type: string
+        client_turn_id:
+          type: string
+        agent_id:
+          type: string
+          enum: [researcher, creator, critic]
+        status:
+          type: string
+          enum: [queued, running, completed, failed]
+        instruction:
+          type: string
+        response:
+          type: string
+        asset_ids:
+          type: array
+          items:
+            type: integer
+        error:
+          type: string
+        hub_job_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateCalibrationReviewRequest:
+      type: object
+      additionalProperties: false
+      required: [client_request_id, source_asset_id]
+      properties:
+        client_request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._-]+$"
+        source_asset_id:
+          type: integer
+          minimum: 1
+
+    CalibrationReview:
+      type: object
+      additionalProperties: false
+      required: [review_id, session_id, execution_id, source_asset_id, status, report, evidence_asset_ids, contact_sheet_asset_ids, error, created_at, updated_at, completed_at]
+      properties:
+        review_id:
+          type: string
+        session_id:
+          type: string
+        execution_id:
+          type: string
+        source_asset_id:
+          type: integer
+        status:
+          type: string
+          enum: [queued, preparing, reviewing, completed, failed]
+        report:
+          $ref: "#/components/schemas/CalibrationReviewReport"
+        evidence_asset_ids:
+          type: array
+          items:
+            type: integer
+        contact_sheet_asset_ids:
+          type: array
+          items:
+            type: integer
+        error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    CalibrationReviewReport:
+      type: object
+      additionalProperties: true
+      properties:
+        summary:
+          type: string
+        verdict:
+          type: string
+          enum: [pass, revise]
+        total_score:
+          type: number
+        hard_errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalibrationFinding"
+        style_findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalibrationFinding"
+        shot_assessments:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalibrationFinding"
+        revision_requirements:
+          type: array
+          items:
+            type: string
+
+    CalibrationFinding:
+      type: object
+      additionalProperties: true
+      properties:
+        time_range:
+          type: string
+        description:
+          type: string
+        evidence_asset_ids:
+          type: array
+          items:
+            type: integer
+
+    CalibrationEvidenceFrame:
+      type: object
+      additionalProperties: false
+      required: [asset_id, shot_index, position, timestamp_seconds, description, url]
+      properties:
+        asset_id:
+          type: integer
+        shot_index:
+          type: integer
+        position:
+          type: string
+        timestamp_seconds:
+          type: number
+        description:
+          type: string
+        url:
+          type: string
+          format: uri
+
+    CalibrationEvidenceFile:
+      type: object
+      additionalProperties: false
+      required: [asset_id, url]
+      properties:
+        asset_id:
+          type: integer
+        url:
+          type: string
+          format: uri
+
+    CalibrationEvidence:
+      type: object
+      additionalProperties: false
+      required: [review_id, session_id, status, frames, contact_sheets, transcript_status, mechanical_metrics, openaiFileResponse]
+      properties:
+        review_id:
+          type: string
+        session_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, preparing, reviewing, completed, failed]
+        frames:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalibrationEvidenceFrame"
+        contact_sheets:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalibrationEvidenceFile"
+        transcript_status:
+          type: string
+        mechanical_metrics:
+          $ref: "#/components/schemas/StructuredData"
+        openaiFileResponse:
+          type: array
+          maxItems: 4
+          items:
+            type: string
+            format: uri
+
+    CreatePromptCandidateRequest:
+      type: object
+      additionalProperties: false
+      required: [client_request_id, content, change_summary]
+      properties:
+        client_request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._-]+$"
+        content:
+          type: string
+          minLength: 1
+          maxLength: 200000
+        change_summary:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        calibration_session_id:
+          type: string
+          maxLength: 128
+
+    PromptVersionSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - prompt_version_id
+        - agent_id
+        - status
+        - content_sha256
+        - base_content_sha256
+        - change_summary
+        - calibration_session_id
+        - created_at
+        - updated_at
+        - activated_at
+      properties:
+        prompt_version_id:
+          type: string
+        agent_id:
+          type: string
+          enum: [researcher, creator, critic]
+        status:
+          type: string
+          enum: [draft, testing, active, retired]
+        content_sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        base_content_sha256:
+          type: string
+        change_summary:
+          type: string
+        calibration_session_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        activated_at:
+          type: string
+          format: date-time
+
+    StructuredData:
+      type: object
+      additionalProperties: true
+      properties:
+        summary:
+          type: string
+        status:
+          type: string
+        output_asset_ids:
+          type: array
+          items:
+            type: integer
+        notes:
+          type: string
+
+    WorkItem:
+      type: object
+      additionalProperties: false
+      required: [work_item_id, workflow_id, work_type, assigned_agent_id, status]
+      properties:
+        work_item_id:
+          type: string
+        workflow_id:
+          type: string
+        session_id:
+          type: string
+        parent_work_item_id:
+          type: string
+        work_type:
+          type: string
+        assigned_agent_id:
+          type: string
+          enum: [researcher, creator, critic, engineer]
+        status:
+          type: string
+          enum: [queued, running, waiting_dependency, waiting_approval, completed, failed, canceled]
+        attempt:
+          type: integer
+        depth:
+          type: integer
+        blocks_workflow:
+          type: boolean
+        input:
+          $ref: "#/components/schemas/StructuredData"
+        output:
+          $ref: "#/components/schemas/StructuredData"
+        summary:
+          type: string
+        error:
+          type: string
+        heartbeat_at:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        started_at:
+          type: string
+        completed_at:
+          type: string
+
+    Approval:
+      type: object
+      additionalProperties: false
+      required: [approval_id, workflow_id, approval_type, status, title]
+      properties:
+        approval_id:
+          type: string
+        workflow_id:
+          type: string
+        work_item_id:
+          type: string
+        approval_type:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        requested_by_agent_id:
+          type: string
+        title:
+          type: string
+        detail:
+          $ref: "#/components/schemas/StructuredData"
+        decision_note:
+          type: string
+        decided_by:
+          type: string
+        created_at:
+          type: string
+        decided_at:
+          type: string
+
+    ReviewIssue:
+      type: object
+      additionalProperties: true
+      properties:
+        time_range:
+          type: string
+        severity:
+          type: string
+          enum: [none, low, medium, high, critical]
+        problem:
+          type: string
+        fix:
+          type: string
+        evidence_asset_id:
+          type: integer
+
+    Review:
+      type: object
+      additionalProperties: false
+      required: [review_id, verdict, severity, summary]
+      properties:
+        review_id:
+          type: string
+        workflow_id:
+          type: string
+        work_item_id:
+          type: string
+        asset_id:
+          type: integer
+        verdict:
+          type: string
+          enum: [pass, revise]
+        severity:
+          type: string
+          enum: [none, low, medium, high, critical]
+        summary:
+          type: string
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewIssue"
+        evidence_asset_ids:
+          type: array
+          items:
+            type: integer
+        revision_instructions:
+          type: string
+        created_by_agent_id:
+          type: string
+        created_at:
+          type: string
+
+    Workflow:
+      type: object
+      additionalProperties: false
+      required: [workflow_id, session_id, title, request, status, current_stage]
+      properties:
+        workflow_id:
+          type: string
+        client_request_id:
+          type: string
+        correlation_id:
+          type: string
+        session_id:
+          type: string
+        workflow_type:
+          type: string
+        title:
+          type: string
+        request:
+          type: string
+        status:
+          type: string
+          enum: [queued, researching, creating, reviewing, revising, waiting_approval, needs_user, blocked, ready_to_publish, published, paused, failed, canceled]
+        current_stage:
+          type: string
+        revision_count:
+          type: integer
+        max_revisions:
+          type: integer
+        requested_by:
+          type: string
+        metadata:
+          $ref: "#/components/schemas/StructuredData"
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        completed_at:
+          type: string
+        work_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkItem"
+        approvals:
+          type: array
+          items:
+            $ref: "#/components/schemas/Approval"
+        reviews:
+          type: array
+          items:
+            $ref: "#/components/schemas/Review"
+
+    WorkflowEvent:
+      type: object
+      additionalProperties: false
+      required: [event_id, workflow_id, event_type, actor_type, summary, created_at]
+      properties:
+        event_id:
+          type: integer
+        workflow_id:
+          type: string
+        session_id:
+          type: string
+        event_type:
+          type: string
+        actor_type:
+          type: string
+        actor_id:
+          type: string
+        summary:
+          type: string
+        data:
+          $ref: "#/components/schemas/StructuredData"
+        correlation_id:
+          type: string
+        created_at:
+          type: string
+
+    WorkflowMessage:
+      type: object
+      additionalProperties: true
+      required: [id, session_id, content]
+      properties:
+        id:
+          type: integer
+        session_id:
+          type: string
+        sender_name:
+          type: string
+        sender_type:
+          type: string
+        target:
+          type: string
+        content:
+          type: string
+        message_type:
+          type: string
+        status:
+          type: string
+        task_id:
+          type: string
+        created_at:
+          type: string
+
+    AssetSummary:
+      type: object
+      additionalProperties: false
+      required: [id, asset_type, title, status, available]
+      properties:
+        id:
+          type: integer
+        asset_type:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        mime_type:
+          type: string
+        file_size:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+        duration_seconds:
+          type: number
+        status:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        created_by_name:
+          type: string
+        created_at:
+          type: string
+        available:
+          type: boolean
+        download_path:
+          type: string
+        thumbnail_path:
+          type: string
+
+    CreateWorkflowResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, workflow, created]
+      properties:
+        ok:
+          type: boolean
+        workflow:
+          $ref: "#/components/schemas/Workflow"
+        created:
+          type: boolean
+
+    WorkflowResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, workflow]
+      properties:
+        ok:
+          type: boolean
+        workflow:
+          $ref: "#/components/schemas/Workflow"
+
+    WorkflowEventsResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, events]
+      properties:
+        ok:
+          type: boolean
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowEvent"
+
+    WorkflowMessageResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, message]
+      properties:
+        ok:
+          type: boolean
+        message:
+          $ref: "#/components/schemas/WorkflowMessage"
+
+    ApprovalResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, approval]
+      properties:
+        ok:
+          type: boolean
+        approval:
+          $ref: "#/components/schemas/Approval"
+
+    AssetSummaryResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, asset]
+      properties:
+        ok:
+          type: boolean
+        asset:
+          $ref: "#/components/schemas/AssetSummary"
+
+    ReviewResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, review]
+      properties:
+        ok:
+          type: boolean
+        review:
+          $ref: "#/components/schemas/Review"
+
+    ErrorResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+          example: Unauthorized

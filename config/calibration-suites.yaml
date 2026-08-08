@@ -1,0 +1,103 @@
+schema_version: 1
+scoring:
+  total_points: 100
+  pass_score: 80
+  require_zero_hard_errors: true
+  final_decision: user
+
+suites:
+  creator:
+    suite_version: creator-baseline-v1
+    display_name: Qingzheng Potato video baseline
+    cases:
+      - case_id: creator-v1-vertical-explainer
+        instruction: Create a 15-25 second 9:16 explainer from the supplied ResearchPackage. Deliver a real MP4, subtitles, script, cover frame, generation parameters, duration, and aspect ratio.
+        hard_errors:
+          - Missing or unreadable MP4 asset
+          - Output aspect ratio is not 9:16
+          - Spoken facts contradict the supplied ResearchPackage
+          - Claimed asset was not actually generated
+        dimensions:
+          instruction_following: 20
+          factual_fidelity: 20
+          visual_quality: 20
+          audio_subtitle_quality: 20
+          package_completeness: 20
+      - case_id: creator-v1-dense-data
+        instruction: Create a 30-45 second 9:16 data-led video with at least two on-screen figures, readable mobile subtitles, source attribution, and a coherent opening-to-conclusion narrative.
+        hard_errors:
+          - Any on-screen figure differs from the supplied source
+          - Text is clipped or unreadable at mobile size
+          - Missing source attribution for a factual figure
+          - Output asset is incomplete or corrupt
+        dimensions:
+          data_accuracy: 25
+          mobile_readability: 20
+          narrative_structure: 20
+          audiovisual_quality: 20
+          package_completeness: 15
+      - case_id: creator-v1-revision
+        instruction: Revise a supplied VideoPackage using a ReviewReport. Resolve every high-severity issue, preserve unaffected sections, and return a new version with a change summary.
+        hard_errors:
+          - Any high-severity review issue remains
+          - Previous output is overwritten instead of versioned
+          - New factual or playback regression is introduced
+          - Change summary claims an edit that is absent
+        dimensions:
+          review_compliance: 35
+          regression_control: 25
+          visual_quality: 15
+          audio_subtitle_quality: 15
+          version_traceability: 10
+
+  researcher:
+    suite_version: researcher-baseline-v1
+    display_name: Potato Doctor research baseline
+    cases:
+      - case_id: researcher-v1-source-traceability
+        instruction: Research the supplied topic and produce a ResearchPackage whose material claims each map to an accessible primary source URL.
+      - case_id: researcher-v1-conflicting-sources
+        instruction: Compare the supplied conflicting sources, explain the disagreement, rank source reliability, and keep unresolved facts in open_questions.
+      - case_id: researcher-v1-script-brief
+        instruction: Convert the supplied source set into a concise short-video script brief without adding unsupported facts.
+      - case_id: researcher-v1-material-rights
+        instruction: Build a material list for the supplied topic and label licensing, attribution, and reuse risks for every item.
+      - case_id: researcher-v1-fact-update
+        instruction: Recheck the supplied dated ResearchPackage, identify stale claims, and provide dated replacement sources or mark the claim unconfirmed.
+    hard_errors:
+      - Fabricated source or URL
+      - Material claim has no traceable source
+      - Uncertainty is presented as confirmed fact
+      - Copyright risk is concealed
+    dimensions:
+      source_quality: 25
+      factual_accuracy: 25
+      traceability: 20
+      script_usefulness: 15
+      uncertainty_and_rights: 15
+
+  critic:
+    suite_version: critic-baseline-v1
+    display_name: Spicy Potato video review baseline
+    cases:
+      - case_id: critic-v1-factual-mismatch
+        instruction: Review a VideoPackage containing one seeded factual mismatch and report the exact time range, evidence, severity, and correction.
+      - case_id: critic-v1-subtitle-timing
+        instruction: Review a VideoPackage containing subtitle timing and mobile-readability defects and produce actionable fixes.
+      - case_id: critic-v1-audio-visual-sync
+        instruction: Review a VideoPackage containing an audio-to-visual synchronization defect and identify its exact interval.
+      - case_id: critic-v1-visual-artifacts
+        instruction: Review a VideoPackage containing seeded visual artifacts and distinguish blocking issues from polish suggestions.
+      - case_id: critic-v1-revision-comparison
+        instruction: Compare an original and revised VideoPackage against the previous ReviewReport, verify each requested fix, and detect regressions.
+    hard_errors:
+      - Seeded high-severity issue is missed
+      - Evidence or time range is fabricated
+      - Verdict contradicts listed high-severity issues
+      - Review claims media inspection when the ReviewPackage was unavailable
+    dimensions:
+      defect_recall: 30
+      evidence_precision: 25
+      severity_judgment: 15
+      fix_actionability: 20
+      report_consistency: 10
