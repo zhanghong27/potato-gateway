@@ -154,6 +154,77 @@ def test_manual_calibration_cannot_execute_agent(
     assert response.status_code == 409
 
 
+def test_calibration_session_can_be_archived_and_restored(
+    gateway: tuple[TestClient, Path],
+) -> None:
+    client, _ = gateway
+    created = client.post(
+        "/api/calibrations",
+        headers=headers(),
+        json={
+            "client_request_id": "archive-session-1",
+            "agent_id": "creator",
+            "transport": "manual",
+            "goal": "Archive lifecycle",
+            "acceptance_criteria": [],
+        },
+    ).json()
+    session_id = created["session_id"]
+
+    archived = client.delete(
+        f"/api/calibrations/{session_id}", headers=headers()
+    )
+    assert archived.status_code == 200
+    assert archived.json()["state"] == "closed"
+    detail = client.get(
+        f"/api/calibrations/{session_id}", headers=headers()
+    )
+    assert detail.json()["state"] == "closed"
+
+    restored = client.post(
+        f"/api/calibrations/{session_id}/restore", headers=headers()
+    )
+    assert restored.status_code == 200
+    assert restored.json()["state"] == "calibrating"
+
+
+def test_active_calibration_session_cannot_be_archived(
+    gateway: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _ = gateway
+
+    def fake_request(self, method, path, payload=None, *, headers=None, sanitize=True):
+        assert method == "POST"
+        assert path == "/api/calibration-jobs"
+        return {"calibration_job": {"job_id": "caljob-active", "status": "queued"}}
+
+    monkeypatch.setattr(HubClient, "request", fake_request)
+    created = client.post(
+        "/api/calibrations",
+        headers=headers(),
+        json={
+            "client_request_id": "active-archive-session-1",
+            "agent_id": "creator",
+            "transport": "hub",
+            "goal": "Keep active work writable",
+            "acceptance_criteria": [],
+        },
+    ).json()
+    session_id = created["session_id"]
+    queued = client.post(
+        f"/api/calibrations/{session_id}/executions",
+        headers=headers(),
+        json={"client_turn_id": "active-turn-1", "instruction": "Run now"},
+    )
+    assert queued.status_code == 202
+
+    archived = client.delete(
+        f"/api/calibrations/{session_id}", headers=headers()
+    )
+    assert archived.status_code == 409
+    assert "active" in archived.json()["detail"]
+
+
 def test_creator_calibration_review_returns_scoped_signed_evidence(
     gateway: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:

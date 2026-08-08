@@ -35,6 +35,20 @@ def test_home_console_links_primary_surfaces(client: TestClient) -> None:
     assert 'href="/docs"' in response.text
 
 
+def test_calibration_console_exposes_session_lifecycle_controls(
+    client: TestClient,
+) -> None:
+    response = client.get("/calibrations")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert "新建校准" in response.text
+    assert "createSession()" in response.text
+    assert "archiveSession()" in response.text
+    assert "restoreSession()" in response.text
+    assert "executeTest()" in response.text
+
+
 def test_versioned_action_schema_is_public_and_not_cached(client: TestClient) -> None:
     response = client.get("/potato-actions-v0.2.4.yaml")
 

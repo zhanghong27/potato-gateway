@@ -13,6 +13,7 @@ from potato_gateway.models import (
 from potato_gateway.repositories import (
     CalibrationPersistenceError,
     CalibrationSessionNotFoundError,
+    CalibrationSessionNotWritableError,
     CalibrationSessionRecord,
     CalibrationSessionRepository,
     CalibrationTurnRecord,
@@ -100,6 +101,29 @@ class CalibrationService:
                 agent_id=agent_id,
                 sessions=[self._session_summary(record) for record in records],
             )
+        except (CalibrationPersistenceError, ValidationError):
+            raise CalibrationServiceUnavailableError from None
+
+    def archive_session(self, session_id: str) -> CalibrationSessionSummary:
+        try:
+            return self._session_summary(
+                self.session_repository.archive_session(session_id)
+            )
+        except (
+            CalibrationSessionNotFoundError,
+            CalibrationSessionNotWritableError,
+        ):
+            raise
+        except (CalibrationPersistenceError, ValidationError):
+            raise CalibrationServiceUnavailableError from None
+
+    def restore_session(self, session_id: str) -> CalibrationSessionSummary:
+        try:
+            return self._session_summary(
+                self.session_repository.restore_session(session_id)
+            )
+        except CalibrationSessionNotFoundError:
+            raise
         except (CalibrationPersistenceError, ValidationError):
             raise CalibrationServiceUnavailableError from None
 

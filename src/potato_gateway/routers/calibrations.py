@@ -204,6 +204,65 @@ def get_calibration_session(
     return session
 
 
+@router.delete(
+    "/api/calibrations/{session_id}",
+    response_model=CalibrationSessionSummary,
+    include_in_schema=False,
+    dependencies=[Depends(require_bearer_token)],
+)
+def archive_calibration_session(
+    session_id: Annotated[str, Path(min_length=1, max_length=128)],
+    request: Request,
+    service: Annotated[CalibrationService, Depends(get_calibration_service)],
+) -> CalibrationSessionSummary:
+    try:
+        session = service.archive_session(session_id)
+    except CalibrationSessionNotFoundError:
+        raise HTTPException(
+            status_code=404, detail="Calibration session not found"
+        ) from None
+    except CalibrationSessionNotWritableError:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot archive a session while calibration work is active",
+        ) from None
+    except CalibrationServiceUnavailableError:
+        raise HTTPException(
+            status_code=503,
+            detail="Calibration data is temporarily unavailable",
+        ) from None
+    request.state.session_id = session_id
+    request.state.agent_id = session.agent_id
+    return session
+
+
+@router.post(
+    "/api/calibrations/{session_id}/restore",
+    response_model=CalibrationSessionSummary,
+    include_in_schema=False,
+    dependencies=[Depends(require_bearer_token)],
+)
+def restore_calibration_session(
+    session_id: Annotated[str, Path(min_length=1, max_length=128)],
+    request: Request,
+    service: Annotated[CalibrationService, Depends(get_calibration_service)],
+) -> CalibrationSessionSummary:
+    try:
+        session = service.restore_session(session_id)
+    except CalibrationSessionNotFoundError:
+        raise HTTPException(
+            status_code=404, detail="Calibration session not found"
+        ) from None
+    except CalibrationServiceUnavailableError:
+        raise HTTPException(
+            status_code=503,
+            detail="Calibration data is temporarily unavailable",
+        ) from None
+    request.state.session_id = session_id
+    request.state.agent_id = session.agent_id
+    return session
+
+
 @router.post(
     "/api/calibrations/{session_id}/turns",
     response_model=CalibrationTurnResponse,

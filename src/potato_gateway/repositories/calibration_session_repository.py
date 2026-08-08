@@ -164,6 +164,95 @@ class CalibrationSessionRepository:
         except (DatabaseUnavailableError, sqlite3.Error, ValueError, TypeError):
             raise CalibrationPersistenceError("calibration data is unavailable") from None
 
+    def archive_session(self, session_id: str) -> CalibrationSessionRecord:
+        self._initialize()
+        try:
+            with self.database.connection() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    "SELECT * FROM calibration_sessions WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                if row is None:
+                    raise CalibrationSessionNotFoundError(session_id)
+                if row["state"] == "closed":
+                    connection.commit()
+                    return self._session_from_row(row)
+                active_execution = connection.execute(
+                    """
+                    SELECT 1 FROM calibration_executions
+                    WHERE session_id = ? AND status IN ('queued', 'running')
+                    LIMIT 1
+                    """,
+                    (session_id,),
+                ).fetchone()
+                active_review = connection.execute(
+                    """
+                    SELECT 1 FROM calibration_reviews
+                    WHERE session_id = ?
+                      AND status IN ('queued', 'preparing', 'reviewing')
+                    LIMIT 1
+                    """,
+                    (session_id,),
+                ).fetchone()
+                if active_execution or active_review:
+                    raise CalibrationSessionNotWritableError(
+                        "session has active calibration work"
+                    )
+                now = self.database.utc_now()
+                connection.execute(
+                    """
+                    UPDATE calibration_sessions
+                    SET state = 'closed', updated_at = ?
+                    WHERE session_id = ?
+                    """,
+                    (now, session_id),
+                )
+                updated = connection.execute(
+                    "SELECT * FROM calibration_sessions WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                connection.commit()
+            return self._session_from_row(updated)
+        except (CalibrationSessionNotFoundError, CalibrationSessionNotWritableError):
+            raise
+        except (DatabaseUnavailableError, sqlite3.Error, ValueError, TypeError):
+            raise CalibrationPersistenceError("calibration data is unavailable") from None
+
+    def restore_session(self, session_id: str) -> CalibrationSessionRecord:
+        self._initialize()
+        try:
+            with self.database.connection() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    "SELECT * FROM calibration_sessions WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                if row is None:
+                    raise CalibrationSessionNotFoundError(session_id)
+                if row["state"] != "closed":
+                    connection.commit()
+                    return self._session_from_row(row)
+                now = self.database.utc_now()
+                connection.execute(
+                    """
+                    UPDATE calibration_sessions
+                    SET state = 'calibrating', updated_at = ?
+                    WHERE session_id = ?
+                    """,
+                    (now, session_id),
+                )
+                updated = connection.execute(
+                    "SELECT * FROM calibration_sessions WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                connection.commit()
+            return self._session_from_row(updated)
+        except CalibrationSessionNotFoundError:
+            raise
+        except (DatabaseUnavailableError, sqlite3.Error, ValueError, TypeError):
+            raise CalibrationPersistenceError("calibration data is unavailable") from None
+
     def list_turns(self, session_id: str) -> list[CalibrationTurnRecord]:
         self._initialize()
         try:
