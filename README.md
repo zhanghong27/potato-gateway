@@ -12,6 +12,8 @@ Potato Gateway is the unified HTTP API entrance for Potato Hub, ChatGPT GPT Acti
 - `POST /api/calibrations/{session_id}/turns`: append an idempotent manual Turn.
 - `GET /api/agents/{agent_id}/calibrations`: list an Agent's Sessions newest first.
 - Asynchronous calibration execution: queue a real Agent turn, then poll by execution ID.
+- Historical delivery calibration: select an existing Hub video plus storyboard, timeline, script, manifest, subtitle, audio, cover, or other supporting Assets without calling the creator.
+- Versioned calibration Submissions: one primary video per version, optional parent version, safe previews, and manual critic review.
 - Video workflow Actions: create, inspect, message, approve, summarize Assets, and read Reviews.
 - Immutable Prompt candidates plus an authenticated admin-only publish/rollback path.
 - Bearer Token authentication, strict Pydantic responses, path containment checks, and safe request logging.
@@ -25,6 +27,8 @@ In this project, calibration means iteratively testing and adjusting Prompt, Ski
 A calibration Session stores a goal, acceptance criteria, a snapshot of the current Prompt hash, and an ordered set of Turns. Session state in this phase is limited to `calibrating`, `blocked`, or `closed`.
 
 `transport: manual` only records caller-supplied content. `transport: hub` uses the asynchronous Hermes Runner: `executeCalibrationTurn` immediately returns an execution ID, and `getCalibrationTurn` later synchronizes the real response and Asset IDs from Hub. A completed Hub response is also appended to the isolated calibration Session.
+
+The calibration console at `http://127.0.0.1:8765/calibrations` supports two entry modes. `Historical delivery` creates a Submission directly from Assets already registered in Hub and never calls the creator. `Live generation` keeps the asynchronous Runner path. A historical Submission recommends one available video, infers common supporting-file roles from filenames, and lets the user correct the selection before manually starting critic review.
 
 Fixed test suites live in `config/calibration-suites.yaml`: creator has 3 baseline cases; researcher and critic have 5 each. The global gate is zero hard errors and at least 80/100, but only the user can accept a candidate Prompt. ChatGPT may record a structured critique and create a candidate; it cannot publish one through GPT Actions.
 

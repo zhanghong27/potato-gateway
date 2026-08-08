@@ -6,8 +6,8 @@ info:
     API for checking Hong's Potato multi-agent system, inspecting registered
     Hermes Agent profiles, running visible multi-agent video workflows, and
     managing structured calibration sessions.
-  version: 0.2.4
-  x-potato-schema-build: calibration-review-3.1-20260807
+  version: 0.2.5
+  x-potato-schema-build: historical-submissions-3.1-20260808
 
 servers:
   - url: https://zhanghongmac-mini.tail282e0b.ts.net
@@ -693,6 +693,190 @@ paths:
                     items:
                       $ref: "#/components/schemas/PromptVersionSummary"
 
+  /api/calibration-asset-sources:
+    get:
+      operationId: listCalibrationAssetSources
+      summary: List historical delivery sources available for calibration
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Historical Hub sessions containing available videos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationAssetSourceList"
+
+  /api/calibration-asset-sources/{source_id}:
+    get:
+      operationId: getCalibrationAssetSource
+      summary: Get assets and suggested roles for a historical delivery source
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Safe historical asset summaries without local paths
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationAssetSource"
+
+  /api/calibrations/{session_id}/submissions:
+    post:
+      operationId: createCalibrationSubmission
+      summary: Attach an existing historical delivery package to a creator calibration
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCalibrationSubmissionRequest"
+      responses:
+        "201":
+          description: Submission created without invoking the creator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationSubmission"
+        "200":
+          description: Existing idempotent submission returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationSubmission"
+    get:
+      operationId: listCalibrationSubmissions
+      summary: List live and historical submissions in one calibration session
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Submission history newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session_id, submissions]
+                properties:
+                  session_id:
+                    type: string
+                  submissions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CalibrationSubmission"
+
+  /api/calibrations/{session_id}/submissions/{submission_id}:
+    get:
+      operationId: getCalibrationSubmission
+      summary: Get a calibration submission with safe deliverable previews
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Submission video, deliverables, and version relationship
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationSubmission"
+
+  /api/calibrations/{session_id}/submissions/{submission_id}/reviews:
+    post:
+      operationId: createCalibrationSubmissionReview
+      summary: Manually ask the critic to review a historical or live submission
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [client_request_id]
+              properties:
+                client_request_id:
+                  type: string
+                  pattern: "^[A-Za-z0-9._-]+$"
+      responses:
+        "202":
+          description: Submission review queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationReview"
+
+  /api/calibrations/{session_id}/submissions/{submission_id}/reviews/{review_id}:
+    get:
+      operationId: getCalibrationSubmissionReview
+      summary: Poll a submission review and obtain its structured report
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: review_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current review state and report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationReview"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1291,6 +1475,181 @@ components:
           type: integer
           minimum: 1
 
+    CalibrationAsset:
+      type: object
+      additionalProperties: false
+      required: [id, asset_type, title, mime_type, available, suggested_role]
+      properties:
+        id:
+          type: integer
+        asset_type:
+          type: string
+        title:
+          type: string
+        mime_type:
+          type: string
+        file_size:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+        duration_seconds:
+          type: number
+        status:
+          type: string
+        available:
+          type: boolean
+        suggested_role:
+          type: string
+          enum: [storyboard, sync_timeline, script, evidence_manifest, subtitle, audio, cover, other]
+        preview_available:
+          type: boolean
+
+    CalibrationAssetSourceSummary:
+      type: object
+      additionalProperties: false
+      required: [source_id, source_type, title, updated_at, asset_count, available_asset_count, video_count]
+      properties:
+        source_id:
+          type: string
+        source_type:
+          type: string
+          enum: [session, workflow]
+        title:
+          type: string
+        updated_at:
+          type: string
+        asset_count:
+          type: integer
+        available_asset_count:
+          type: integer
+        video_count:
+          type: integer
+        recommended_video_asset_id:
+          type: integer
+
+    CalibrationAssetSourceList:
+      type: object
+      additionalProperties: false
+      required: [sources]
+      properties:
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalibrationAssetSourceSummary"
+
+    CalibrationAssetSource:
+      type: object
+      additionalProperties: false
+      required: [source_id, source_type, title, updated_at, assets]
+      properties:
+        source_id:
+          type: string
+        source_type:
+          type: string
+          enum: [session, workflow]
+        title:
+          type: string
+        updated_at:
+          type: string
+        recommended_video_asset_id:
+          type: integer
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalibrationAsset"
+
+    CalibrationSupportAssetInput:
+      type: object
+      additionalProperties: false
+      required: [asset_id, role]
+      properties:
+        asset_id:
+          type: integer
+          minimum: 1
+        role:
+          type: string
+          enum: [storyboard, sync_timeline, script, evidence_manifest, subtitle, audio, cover, other]
+
+    CreateCalibrationSubmissionRequest:
+      type: object
+      additionalProperties: false
+      required: [client_request_id, primary_video_asset_id, source_id, support_assets]
+      properties:
+        client_request_id:
+          type: string
+          pattern: "^[A-Za-z0-9._-]+$"
+        primary_video_asset_id:
+          type: integer
+          minimum: 1
+        support_assets:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/CalibrationSupportAssetInput"
+        source_id:
+          type: string
+        parent_submission_id:
+          type: string
+
+    CalibrationSubmissionAsset:
+      type: object
+      additionalProperties: false
+      required: [asset_id, role, asset_type, title, mime_type, available, text_preview, preview_truncated]
+      properties:
+        asset_id:
+          type: integer
+        role:
+          type: string
+          enum: [storyboard, sync_timeline, script, evidence_manifest, subtitle, audio, cover, other]
+        asset_type:
+          type: string
+        title:
+          type: string
+        mime_type:
+          type: string
+        available:
+          type: boolean
+        text_preview:
+          type: string
+        preview_truncated:
+          type: boolean
+
+    CalibrationSubmission:
+      type: object
+      additionalProperties: false
+      required: [submission_id, session_id, source_type, primary_video, support_assets, status, created_at, updated_at]
+      properties:
+        submission_id:
+          type: string
+        session_id:
+          type: string
+        source_type:
+          type: string
+          enum: [live_execution, existing_assets]
+        execution_id:
+          type: string
+        primary_video:
+          $ref: "#/components/schemas/CalibrationSubmissionAsset"
+        support_assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalibrationSubmissionAsset"
+        source_id:
+          type: string
+        parent_submission_id:
+          type: string
+        status:
+          type: string
+          enum: [ready, reviewing, completed, failed]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
     CalibrationReview:
       type: object
       additionalProperties: false
@@ -1301,6 +1660,8 @@ components:
         session_id:
           type: string
         execution_id:
+          type: string
+        submission_id:
           type: string
         source_asset_id:
           type: integer

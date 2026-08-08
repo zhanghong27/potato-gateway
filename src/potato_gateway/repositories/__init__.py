@@ -25,6 +25,13 @@ from potato_gateway.repositories.calibration_review_repository import (
     CalibrationReviewRecord,
     CalibrationReviewRepository,
 )
+from potato_gateway.repositories.calibration_submission_repository import (
+    CalibrationSubmissionConflictError,
+    CalibrationSubmissionNotFoundError,
+    CalibrationSubmissionPersistenceError,
+    CalibrationSubmissionRecord,
+    CalibrationSubmissionRepository,
+)
 from potato_gateway.repositories.prompt_version_repository import (
     PromptVersionConflictError,
     PromptVersionNotFoundError,
@@ -54,6 +61,11 @@ __all__ = [
     "CalibrationReviewPersistenceError",
     "CalibrationReviewRecord",
     "CalibrationReviewRepository",
+    "CalibrationSubmissionConflictError",
+    "CalibrationSubmissionNotFoundError",
+    "CalibrationSubmissionPersistenceError",
+    "CalibrationSubmissionRecord",
+    "CalibrationSubmissionRepository",
     "PromptVersionConflictError",
     "PromptVersionNotFoundError",
     "PromptVersionPersistenceError",

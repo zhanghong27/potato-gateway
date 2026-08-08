@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-MIGRATION_VERSION = 3
+MIGRATION_VERSION = 4
 BUSY_TIMEOUT_MS = 5_000
 LOGGER = logging.getLogger("potato_gateway.database")
 APP_DATABASE_LOCK = threading.Lock()
@@ -70,6 +70,12 @@ class Database:
                         connection.execute(
                             "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
                             (3, self.utc_now()),
+                        )
+                    if 4 not in applied:
+                        self._apply_v4(connection)
+                        connection.execute(
+                            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                            (4, self.utc_now()),
                         )
                     connection.commit()
                     connection.execute("PRAGMA foreign_keys = ON")
@@ -302,6 +308,45 @@ class Database:
         )
         connection.execute(
             "CREATE INDEX idx_calibration_reviews_execution ON calibration_reviews(execution_id, created_at DESC)"
+        )
+
+    def _apply_v4(self, connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            CREATE TABLE calibration_submissions (
+                submission_id TEXT PRIMARY KEY,
+                client_request_id TEXT NOT NULL UNIQUE,
+                session_id TEXT NOT NULL,
+                source_type TEXT NOT NULL CHECK (
+                    source_type IN ('live_execution', 'existing_assets')
+                ),
+                execution_id TEXT NOT NULL DEFAULT '',
+                primary_video_asset_id INTEGER NOT NULL,
+                support_assets_json TEXT NOT NULL DEFAULT '[]',
+                source_id TEXT NOT NULL DEFAULT '',
+                parent_submission_id TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL CHECK (
+                    status IN ('ready', 'reviewing', 'completed', 'failed')
+                ),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (session_id)
+                    REFERENCES calibration_sessions(session_id)
+                    ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            "ALTER TABLE calibration_reviews ADD COLUMN submission_id TEXT NOT NULL DEFAULT ''"
+        )
+        connection.execute(
+            "CREATE INDEX idx_calibration_submissions_session ON calibration_submissions(session_id, created_at DESC)"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX idx_calibration_submissions_execution ON calibration_submissions(execution_id) WHERE execution_id != ''"
+        )
+        connection.execute(
+            "CREATE INDEX idx_calibration_reviews_submission ON calibration_reviews(submission_id, created_at DESC)"
         )
 
     def _resolve_database_path(self, path: Path) -> Path:

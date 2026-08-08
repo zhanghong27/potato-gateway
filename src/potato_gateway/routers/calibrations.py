@@ -25,9 +25,16 @@ from potato_gateway.models import (
     CalibrationExecutionListResponse,
     CalibrationReviewListResponse,
     CalibrationReviewResponse,
+    CalibrationSubmissionAsset,
+    CalibrationAssetSourceListResponse,
+    CalibrationAssetSourceResponse,
+    CalibrationSubmissionListResponse,
+    CalibrationSubmissionResponse,
     CalibrationTurnResponse,
     CreateCalibrationSessionRequest,
     CreateCalibrationReviewRequest,
+    CreateCalibrationSubmissionRequest,
+    CreateCalibrationSubmissionReviewRequest,
     ErrorResponse,
     ExecuteCalibrationTurnRequest,
     RecordCalibrationTurnRequest,
@@ -44,6 +51,9 @@ from potato_gateway.repositories import (
     CalibrationReviewConflictError,
     CalibrationReviewNotFoundError,
     CalibrationReviewRepository,
+    CalibrationSubmissionConflictError,
+    CalibrationSubmissionNotFoundError,
+    CalibrationSubmissionRepository,
 )
 from potato_gateway.services import (
     AgentProfileUnavailableError,
@@ -53,6 +63,8 @@ from potato_gateway.services import (
     CalibrationExecutionServiceUnavailableError,
     CalibrationReviewService,
     CalibrationReviewServiceUnavailableError,
+    CalibrationSubmissionService,
+    CalibrationSubmissionServiceUnavailableError,
     build_agent_profile_service,
 )
 
@@ -117,6 +129,7 @@ def get_calibration_review_service(request: Request) -> CalibrationReviewService
             CalibrationReviewRepository(database),
             CalibrationExecutionRepository(database),
             CalibrationSessionRepository(database),
+            CalibrationSubmissionRepository(database),
             HubClient(
                 settings.hub_url,
                 token=settings.resolved_hub_token(),
@@ -127,6 +140,34 @@ def get_calibration_review_service(request: Request) -> CalibrationReviewService
         )
     except DatabaseUnavailableError:
         raise HTTPException(status_code=503, detail="Calibration review data is temporarily unavailable") from None
+
+
+def get_calibration_submission_service(
+    request: Request,
+) -> CalibrationSubmissionService:
+    settings = request.app.state.settings
+    try:
+        database = get_app_database(
+            request.app,
+            path=settings.database_path,
+            hermes_home=settings.hermes_home,
+        )
+        return CalibrationSubmissionService(
+            CalibrationSubmissionRepository(database),
+            CalibrationExecutionRepository(database),
+            HubClient(
+                settings.hub_url,
+                token=settings.resolved_hub_token(),
+                timeout=max(settings.hub_timeout_seconds, 30),
+            ),
+            public_base_url=settings.public_base_url,
+            signing_key=settings.gateway_token,
+        )
+    except DatabaseUnavailableError:
+        raise HTTPException(
+            status_code=503,
+            detail="Calibration submission data is temporarily unavailable",
+        ) from None
 
 
 @router.post(
@@ -261,6 +302,282 @@ def restore_calibration_session(
     request.state.session_id = session_id
     request.state.agent_id = session.agent_id
     return session
+
+
+@router.get(
+    "/api/calibration-asset-sources",
+    response_model=CalibrationAssetSourceListResponse,
+    operation_id="listCalibrationAssetSources",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+)
+def list_calibration_asset_sources(
+    service: Annotated[
+        CalibrationSubmissionService,
+        Depends(get_calibration_submission_service),
+    ],
+) -> CalibrationAssetSourceListResponse:
+    try:
+        return service.list_sources()
+    except CalibrationSubmissionServiceUnavailableError:
+        raise HTTPException(
+            status_code=503, detail="Calibration assets are temporarily unavailable"
+        ) from None
+
+
+@router.get(
+    "/api/calibration-asset-sources/{source_id}",
+    response_model=CalibrationAssetSourceResponse,
+    operation_id="getCalibrationAssetSource",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+)
+def get_calibration_asset_source(
+    source_id: Annotated[str, Path(min_length=1, max_length=160)],
+    service: Annotated[
+        CalibrationSubmissionService,
+        Depends(get_calibration_submission_service),
+    ],
+) -> CalibrationAssetSourceResponse:
+    try:
+        return service.get_source(source_id)
+    except CalibrationSubmissionNotFoundError:
+        raise HTTPException(status_code=404, detail="Asset source not found") from None
+    except CalibrationSubmissionServiceUnavailableError:
+        raise HTTPException(
+            status_code=503, detail="Calibration assets are temporarily unavailable"
+        ) from None
+
+
+@router.get(
+    "/api/calibration-asset-sources/{source_id}/assets/{asset_id}/link",
+    include_in_schema=False,
+    dependencies=[Depends(require_bearer_token)],
+)
+def get_calibration_source_asset_link(
+    source_id: Annotated[str, Path(min_length=1, max_length=160)],
+    asset_id: Annotated[int, Path(gt=0)],
+    service: Annotated[
+        CalibrationSubmissionService,
+        Depends(get_calibration_submission_service),
+    ],
+) -> dict[str, object]:
+    try:
+        return {
+            "asset_id": asset_id,
+            "url": service.signed_source_asset_url(source_id, asset_id),
+        }
+    except CalibrationSubmissionNotFoundError:
+        raise HTTPException(status_code=404, detail="Source asset not found") from None
+    except CalibrationSubmissionServiceUnavailableError:
+        raise HTTPException(status_code=503, detail="Source asset unavailable") from None
+
+
+@router.get(
+    "/api/calibration-asset-sources/{source_id}/assets/{asset_id}/preview",
+    response_model=CalibrationSubmissionAsset,
+    include_in_schema=False,
+    dependencies=[Depends(require_bearer_token)],
+)
+def get_calibration_source_asset_preview(
+    source_id: Annotated[str, Path(min_length=1, max_length=160)],
+    asset_id: Annotated[int, Path(gt=0)],
+    service: Annotated[
+        CalibrationSubmissionService,
+        Depends(get_calibration_submission_service),
+    ],
+) -> CalibrationSubmissionAsset:
+    try:
+        return service.source_asset_preview(source_id, asset_id)
+    except CalibrationSubmissionNotFoundError:
+        raise HTTPException(status_code=404, detail="Source asset not found") from None
+    except CalibrationSubmissionServiceUnavailableError:
+        raise HTTPException(status_code=503, detail="Source asset unavailable") from None
+
+
+@router.get("/api/calibration-source-assets/{asset_id}", include_in_schema=False)
+def get_signed_calibration_source_asset(
+    asset_id: Annotated[int, Path(gt=0)],
+    source_id: Annotated[str, Query(min_length=1, max_length=160)],
+    expires: Annotated[int, Query(gt=0)],
+    sig: Annotated[str, Query(min_length=64, max_length=64)],
+    service: Annotated[
+        CalibrationSubmissionService,
+        Depends(get_calibration_submission_service),
+    ],
+) -> Response:
+    if not service.verify_source_asset_signature(
+        source_id, asset_id, expires, sig
+    ):
+        raise HTTPException(status_code=403, detail="Asset link is invalid or expired")
+    try:
+        body, content_type, filename = service.hub_client.request_bytes(
+            f"/api/assets/{asset_id}/file"
+        )
+    except HubNotFoundError:
+        raise HTTPException(status_code=404, detail="Asset not found") from None
+    except HubUnavailableError:
+        raise HTTPException(status_code=503, detail="Asset unavailable") from None
+    return Response(
+        content=body,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{filename.replace(chr(34), "")}"',
+            "Cache-Control": "private, max-age=300",
+        },
+    )
+
+
+@router.post(
+    "/api/calibrations/{session_id}/submissions",
+    response_model=CalibrationSubmissionResponse,
+    status_code=status.HTTP_201_CREATED,
+    operation_id="createCalibrationSubmission",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+    responses={200: {"model": CalibrationSubmissionResponse}},
+)
+def create_calibration_submission(
+    session_id: Annotated[str, Path(min_length=1, max_length=128)],
+    payload: CreateCalibrationSubmissionRequest,
+    request: Request,
+    response: Response,
+    service: Annotated[
+        CalibrationSubmissionService,
+        Depends(get_calibration_submission_service),
+    ],
+) -> CalibrationSubmissionResponse:
+    try:
+        submission, created = service.create_existing(session_id, payload)
+    except CalibrationSubmissionNotFoundError:
+        raise HTTPException(
+            status_code=404, detail="Calibration session or asset source not found"
+        ) from None
+    except CalibrationSubmissionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except CalibrationSubmissionServiceUnavailableError:
+        raise HTTPException(
+            status_code=503,
+            detail="Calibration submission is temporarily unavailable",
+        ) from None
+    request.state.session_id = session_id
+    request.state.turn_id = submission.submission_id
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    return submission
+
+
+@router.get(
+    "/api/calibrations/{session_id}/submissions",
+    response_model=CalibrationSubmissionListResponse,
+    operation_id="listCalibrationSubmissions",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+)
+def list_calibration_submissions(
+    session_id: Annotated[str, Path(min_length=1, max_length=128)],
+    service: Annotated[
+        CalibrationSubmissionService,
+        Depends(get_calibration_submission_service),
+    ],
+) -> CalibrationSubmissionListResponse:
+    try:
+        return service.list_for_session(session_id)
+    except CalibrationSubmissionServiceUnavailableError:
+        raise HTTPException(
+            status_code=503,
+            detail="Calibration submissions are temporarily unavailable",
+        ) from None
+
+
+@router.get(
+    "/api/calibrations/{session_id}/submissions/{submission_id}",
+    response_model=CalibrationSubmissionResponse,
+    operation_id="getCalibrationSubmission",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+)
+def get_calibration_submission(
+    session_id: Annotated[str, Path(min_length=1, max_length=128)],
+    submission_id: Annotated[str, Path(min_length=1, max_length=128)],
+    service: Annotated[
+        CalibrationSubmissionService,
+        Depends(get_calibration_submission_service),
+    ],
+) -> CalibrationSubmissionResponse:
+    try:
+        return service.get(session_id, submission_id)
+    except CalibrationSubmissionNotFoundError:
+        raise HTTPException(status_code=404, detail="Submission not found") from None
+    except CalibrationSubmissionServiceUnavailableError:
+        raise HTTPException(
+            status_code=503, detail="Submission is temporarily unavailable"
+        ) from None
+
+
+@router.post(
+    "/api/calibrations/{session_id}/submissions/{submission_id}/reviews",
+    response_model=CalibrationReviewResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="createCalibrationSubmissionReview",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+    responses={200: {"model": CalibrationReviewResponse}},
+)
+def create_calibration_submission_review(
+    session_id: Annotated[str, Path(min_length=1, max_length=128)],
+    submission_id: Annotated[str, Path(min_length=1, max_length=128)],
+    payload: CreateCalibrationSubmissionReviewRequest,
+    request: Request,
+    response: Response,
+    service: Annotated[
+        CalibrationReviewService, Depends(get_calibration_review_service)
+    ],
+) -> CalibrationReviewResponse:
+    try:
+        review, created = service.create_for_submission(
+            session_id, submission_id, payload.client_request_id
+        )
+    except (CalibrationSubmissionNotFoundError, CalibrationReviewNotFoundError):
+        raise HTTPException(status_code=404, detail="Submission not found") from None
+    except CalibrationReviewConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except CalibrationReviewServiceUnavailableError:
+        raise HTTPException(
+            status_code=503, detail="Calibration review is temporarily unavailable"
+        ) from None
+    request.state.session_id = session_id
+    request.state.turn_id = review.review_id
+    request.state.agent_id = "critic"
+    response.status_code = status.HTTP_202_ACCEPTED if created else status.HTTP_200_OK
+    return review
+
+
+@router.get(
+    "/api/calibrations/{session_id}/submissions/{submission_id}/reviews/{review_id}",
+    response_model=CalibrationReviewResponse,
+    operation_id="getCalibrationSubmissionReview",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+)
+def get_calibration_submission_review(
+    session_id: Annotated[str, Path(min_length=1, max_length=128)],
+    submission_id: Annotated[str, Path(min_length=1, max_length=128)],
+    review_id: Annotated[str, Path(min_length=1, max_length=128)],
+    service: Annotated[
+        CalibrationReviewService, Depends(get_calibration_review_service)
+    ],
+) -> CalibrationReviewResponse:
+    try:
+        review = service.get(session_id, review_id)
+        if review.submission_id != submission_id:
+            raise CalibrationReviewNotFoundError(review_id)
+        return review
+    except CalibrationReviewNotFoundError:
+        raise HTTPException(status_code=404, detail="Calibration review not found") from None
+    except CalibrationReviewServiceUnavailableError:
+        raise HTTPException(
+            status_code=503, detail="Calibration review is temporarily unavailable"
+        ) from None
 
 
 @router.post(

@@ -25,7 +25,9 @@ from potato_gateway.routers import (
 
 LOGGER_NAME = "potato_gateway"
 ACTION_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "gpt-action-openapi.yaml"
-ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.4.yaml"
+ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.5.yaml"
+LEGACY_ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.4.yaml"
+ACTION_SCHEMA_BUILD = "historical-submissions-3.1-20260808"
 
 
 def configure_logging(log_level: str) -> None:
@@ -66,6 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def calibration_console() -> HTMLResponse:
         return HTMLResponse(CALIBRATION_HTML, headers={"Cache-Control": "no-store"})
 
+    @app.get(LEGACY_ACTION_SCHEMA_ROUTE, include_in_schema=False)
     @app.get(ACTION_SCHEMA_ROUTE, include_in_schema=False)
     async def get_action_schema() -> PlainTextResponse:
         return PlainTextResponse(
@@ -73,7 +76,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             media_type="application/yaml",
             headers={
                 "Cache-Control": "no-store, max-age=0",
-                "X-Potato-Schema-Build": "calibration-review-3.1-20260807",
+                "X-Potato-Schema-Build": ACTION_SCHEMA_BUILD,
             },
         )
 

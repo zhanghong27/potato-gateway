@@ -26,6 +26,7 @@ class CalibrationReviewRecord:
     client_request_id: str
     session_id: str
     execution_id: str
+    submission_id: str
     source_asset_id: int
     hub_review_job_id: str
     status: str
@@ -82,6 +83,84 @@ class CalibrationReviewRepository:
                     (review_id, client_request_id, session_id, execution_id, source_asset_id, now, now),
                 )
                 row = connection.execute("SELECT * FROM calibration_reviews WHERE review_id = ?", (review_id,)).fetchone()
+                connection.commit()
+            return self._from_row(row), True
+        except (CalibrationReviewNotFoundError, CalibrationReviewConflictError):
+            raise
+        except (DatabaseUnavailableError, sqlite3.Error, json.JSONDecodeError):
+            raise CalibrationReviewPersistenceError from None
+
+    def create_for_submission(
+        self,
+        *,
+        client_request_id: str,
+        session_id: str,
+        submission_id: str,
+    ) -> tuple[CalibrationReviewRecord, bool]:
+        self.database.initialize()
+        try:
+            with self.database.connection() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                existing = connection.execute(
+                    "SELECT * FROM calibration_reviews WHERE client_request_id = ?",
+                    (client_request_id,),
+                ).fetchone()
+                if existing:
+                    record = self._from_row(existing)
+                    if (
+                        record.session_id != session_id
+                        or record.submission_id != submission_id
+                    ):
+                        raise CalibrationReviewConflictError(
+                            "review idempotency key conflicts with another submission"
+                        )
+                    connection.commit()
+                    return record, False
+                submission = connection.execute(
+                    """
+                    SELECT * FROM calibration_submissions
+                    WHERE submission_id = ? AND session_id = ?
+                    """,
+                    (submission_id, session_id),
+                ).fetchone()
+                if not submission:
+                    raise CalibrationReviewNotFoundError(submission_id)
+                if submission["status"] not in {"ready", "failed"}:
+                    raise CalibrationReviewConflictError(
+                        "submission already has active or completed review work"
+                    )
+                review_id = f"calrev_{uuid.uuid4().hex}"
+                now = self.database.utc_now()
+                connection.execute(
+                    """
+                    INSERT INTO calibration_reviews(
+                        review_id, client_request_id, session_id, execution_id,
+                        submission_id, source_asset_id, status, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)
+                    """,
+                    (
+                        review_id,
+                        client_request_id,
+                        session_id,
+                        submission["execution_id"],
+                        submission_id,
+                        int(submission["primary_video_asset_id"]),
+                        now,
+                        now,
+                    ),
+                )
+                connection.execute(
+                    """
+                    UPDATE calibration_submissions
+                    SET status = 'reviewing', updated_at = ?
+                    WHERE submission_id = ?
+                    """,
+                    (now, submission_id),
+                )
+                row = connection.execute(
+                    "SELECT * FROM calibration_reviews WHERE review_id = ?",
+                    (review_id,),
+                ).fetchone()
                 connection.commit()
             return self._from_row(row), True
         except (CalibrationReviewNotFoundError, CalibrationReviewConflictError):
@@ -146,11 +225,29 @@ class CalibrationReviewRepository:
         with self.database.connection() as connection:
             rows = connection.execute("SELECT * FROM calibration_reviews WHERE session_id = ?", (session_id,)).fetchall()
             execution_rows = connection.execute("SELECT asset_ids_json FROM calibration_executions WHERE session_id = ?", (session_id,)).fetchall()
+            submission_rows = connection.execute(
+                """
+                SELECT primary_video_asset_id, support_assets_json
+                FROM calibration_submissions WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchall()
         for row in rows:
             record = self._from_row(row)
             if asset_id in {record.source_asset_id, *record.evidence_asset_ids, *record.contact_sheet_asset_ids}:
                 return True
-        return any(asset_id in json.loads(row["asset_ids_json"] or "[]") for row in execution_rows)
+        if any(asset_id in json.loads(row["asset_ids_json"] or "[]") for row in execution_rows):
+            return True
+        for row in submission_rows:
+            if int(row["primary_video_asset_id"]) == asset_id:
+                return True
+            support = json.loads(row["support_assets_json"] or "[]")
+            if any(
+                isinstance(item, dict) and item.get("asset_id") == asset_id
+                for item in support
+            ):
+                return True
+        return False
 
     def session_has_hard_errors(self, session_id: str) -> bool:
         return any(bool(record.report.get("hard_errors")) for record in self.list_for_session(session_id) if record.status == "completed")
@@ -159,7 +256,8 @@ class CalibrationReviewRepository:
     def _from_row(row: sqlite3.Row) -> CalibrationReviewRecord:
         return CalibrationReviewRecord(
             review_id=row["review_id"], client_request_id=row["client_request_id"], session_id=row["session_id"],
-            execution_id=row["execution_id"], source_asset_id=int(row["source_asset_id"]),
+            execution_id=row["execution_id"], submission_id=row["submission_id"],
+            source_asset_id=int(row["source_asset_id"]),
             hub_review_job_id=row["hub_review_job_id"], status=row["status"], report=json.loads(row["report_json"] or "{}"),
             review_package=json.loads(row["review_package_json"] or "{}"),
             evidence_asset_ids=json.loads(row["evidence_asset_ids_json"] or "[]"),

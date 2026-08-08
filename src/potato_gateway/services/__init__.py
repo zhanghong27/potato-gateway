@@ -15,6 +15,10 @@ from potato_gateway.services.calibration_review_service import (
     CalibrationReviewService,
     CalibrationReviewServiceUnavailableError,
 )
+from potato_gateway.services.calibration_submission_service import (
+    CalibrationSubmissionService,
+    CalibrationSubmissionServiceUnavailableError,
+)
 from potato_gateway.services.prompt_version_service import (
     PromptVersionService,
     PromptVersionServiceUnavailableError,
@@ -30,6 +34,8 @@ __all__ = [
     "CalibrationExecutionServiceUnavailableError",
     "CalibrationReviewService",
     "CalibrationReviewServiceUnavailableError",
+    "CalibrationSubmissionService",
+    "CalibrationSubmissionServiceUnavailableError",
     "PromptVersionService",
     "PromptVersionServiceUnavailableError",
 ]

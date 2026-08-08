@@ -25,6 +25,9 @@ from potato_gateway.repositories import (
     CalibrationReviewRepository,
     CalibrationSessionNotFoundError,
     CalibrationSessionRepository,
+    CalibrationSubmissionNotFoundError,
+    CalibrationSubmissionPersistenceError,
+    CalibrationSubmissionRepository,
     CalibrationTurnConflictError,
 )
 
@@ -34,10 +37,11 @@ class CalibrationReviewServiceUnavailableError(Exception):
 
 
 class CalibrationReviewService:
-    def __init__(self, review_repository: CalibrationReviewRepository, execution_repository: CalibrationExecutionRepository, session_repository: CalibrationSessionRepository, hub_client: HubClient, *, public_base_url: str, signing_key: str) -> None:
+    def __init__(self, review_repository: CalibrationReviewRepository, execution_repository: CalibrationExecutionRepository, session_repository: CalibrationSessionRepository, submission_repository: CalibrationSubmissionRepository, hub_client: HubClient, *, public_base_url: str, signing_key: str) -> None:
         self.review_repository = review_repository
         self.execution_repository = execution_repository
         self.session_repository = session_repository
+        self.submission_repository = submission_repository
         self.hub_client = hub_client
         self.public_base_url = public_base_url.rstrip("/")
         self.signing_key = signing_key.encode("utf-8")
@@ -56,7 +60,7 @@ class CalibrationReviewService:
                 execution_id=execution_id,
                 source_asset_id=request.source_asset_id,
             )
-            if created:
+            if not record.hub_review_job_id:
                 result = self.hub_client.request(
                     "POST",
                     "/api/calibration-review-jobs",
@@ -77,6 +81,66 @@ class CalibrationReviewService:
         except (CalibrationSessionNotFoundError, CalibrationExecutionNotFoundError, CalibrationReviewNotFoundError, CalibrationReviewConflictError):
             raise
         except (CalibrationReviewPersistenceError, HubUnavailableError, KeyError, TypeError, ValueError, ValidationError):
+            raise CalibrationReviewServiceUnavailableError from None
+
+    def create_for_submission(
+        self, session_id: str, submission_id: str, client_request_id: str
+    ) -> tuple[CalibrationReviewResponse, bool]:
+        try:
+            submission = self.submission_repository.get(submission_id)
+            if submission.session_id != session_id:
+                raise CalibrationSubmissionNotFoundError(submission_id)
+            record, created = self.review_repository.create_for_submission(
+                client_request_id=client_request_id,
+                session_id=session_id,
+                submission_id=submission_id,
+            )
+            if not record.hub_review_job_id:
+                source_job_id = ""
+                if submission.execution_id:
+                    source_job_id = self.execution_repository.get(
+                        submission.execution_id
+                    ).hub_job_id
+                result = self.hub_client.request(
+                    "POST",
+                    "/api/calibration-review-jobs",
+                    {
+                        "client_request_id": record.review_id,
+                        "session_id": session_id,
+                        "source_type": submission.source_type,
+                        "submission_id": submission_id,
+                        "source_calibration_job_id": source_job_id,
+                        "source_execution_id": submission.execution_id,
+                        "source_asset_id": submission.primary_video_asset_id,
+                        "support_asset_ids": [
+                            int(item["asset_id"])
+                            for item in submission.support_assets
+                        ],
+                        "support_assets": submission.support_assets,
+                    },
+                    sanitize=False,
+                )
+                record = self.review_repository.sync(
+                    record.review_id,
+                    hub_review_job_id=str(
+                        result["calibration_review_job"]["review_job_id"]
+                    ),
+                )
+            return self._response(record), created
+        except (
+            CalibrationSubmissionNotFoundError,
+            CalibrationReviewNotFoundError,
+            CalibrationReviewConflictError,
+        ):
+            raise
+        except (
+            CalibrationReviewPersistenceError,
+            HubUnavailableError,
+            KeyError,
+            TypeError,
+            ValueError,
+            ValidationError,
+        ):
             raise CalibrationReviewServiceUnavailableError from None
 
     def get(self, session_id: str, review_id: str) -> CalibrationReviewResponse:
@@ -152,6 +216,14 @@ class CalibrationReviewService:
                     contact_sheet_asset_ids=job.get("contact_sheet_asset_ids") if isinstance(job.get("contact_sheet_asset_ids"), list) else [],
                     error=str(job.get("error") or ""), completed_at=str(job.get("completed_at") or ""),
                 )
+                if record.submission_id:
+                    submission_status = {
+                        "completed": "completed",
+                        "failed": "failed",
+                    }.get(record.status, "reviewing")
+                    self.submission_repository.set_status(
+                        record.submission_id, submission_status
+                    )
             if record.status == "completed":
                 self.session_repository.create_turn(
                     session_id=session_id, client_turn_id=f"{record.review_id}.critic",
@@ -160,13 +232,21 @@ class CalibrationReviewService:
             return record
         except (CalibrationReviewNotFoundError, CalibrationTurnConflictError):
             raise
-        except (CalibrationReviewPersistenceError, HubUnavailableError, KeyError, TypeError, ValueError):
+        except (
+            CalibrationReviewPersistenceError,
+            CalibrationSubmissionPersistenceError,
+            HubUnavailableError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ):
             raise CalibrationReviewServiceUnavailableError from None
 
     @staticmethod
     def _response(record: CalibrationReviewRecord) -> CalibrationReviewResponse:
         return CalibrationReviewResponse(
             review_id=record.review_id, session_id=record.session_id, execution_id=record.execution_id,
+            submission_id=record.submission_id or None,
             source_asset_id=record.source_asset_id, status=record.status, report=record.report,
             evidence_asset_ids=record.evidence_asset_ids, contact_sheet_asset_ids=record.contact_sheet_asset_ids,
             error=record.error or None, created_at=record.created_at, updated_at=record.updated_at,

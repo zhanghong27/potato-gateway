@@ -4,10 +4,21 @@
 
 1. 打开“土豆总指挥”的 Actions 配置。
 2. 删除旧 Action 配置并新建一个 Action，选择从 URL 导入：
-   `https://zhanghongmac-mini.tail282e0b.ts.net/potato-actions-v0.2.4.yaml`
+   `https://zhanghongmac-mini.tail282e0b.ts.net/potato-actions-v0.2.5.yaml`
 3. Authentication 选择 API Key、Bearer，填入现有 `POTATO_GATEWAY_TOKEN`。
-4. 确认标题为 `Potato Gateway Actions Safe`、版本为 `0.2.4`。
-5. 保存后应识别 21 个 Actions，且不应出现 warning 或 skipped function。
+4. 确认标题为 `Potato Gateway Actions Safe`、版本为 `0.2.5`。
+5. 保存后应识别 28 个 Actions，且不应出现 warning 或 skipped function。
+
+## 历史交付包校准
+
+1. 打开 `http://127.0.0.1:8765/calibrations`，点击“新建校准”，保留默认的“历史交付”。
+2. 填写目标和验收标准后创建 Session；系统应直接打开历史素材选择器，且不会调用清蒸土豆。
+3. 选择一个 Hub 工作流或会话。必须选一个可用主视频；系统会按文件名推荐分镜、同步时间轴、脚本、证据清单、字幕、音频和封面角色。
+4. 检查视频预览，并打开 JSON、TXT、Markdown 或字幕的文本预览；不可用素材应保持禁用。
+5. 点击“加入校准”。页面应出现“版本 1”，显示主视频、配套交付件和内容摘要。
+6. 修复后再次导入时，系统会将新 Submission 关联到上一版本，并按版本顺序展示。
+7. 只有点击“交给酸辣土豆丝评审”才会创建评审；导入本身不得调用 creator 或 critic。
+8. 同一 Submission 重复使用相同幂等键，不得创建重复记录或重复评审。
 
 ## 清蒸土豆校准评审
 
@@ -39,16 +50,16 @@ cd /Users/zhanghong/.hermes/potato-gateway
 .venv/bin/pytest -q
 ```
 
-预期：`77 passed`。唯一 warning 是 TestClient 的 Starlette 弃用提醒。
+预期：`85 passed`。唯一 warning 是 TestClient 的 Starlette 弃用提醒。
 
 Hub：
 
 ```bash
 cd /Users/zhanghong/.hermes/potato-relay
-python3 -m unittest discover -s tests -v
+PYTHONPATH=. ../potato-gateway/.venv/bin/pytest -q
 ```
 
-预期：`17 tests`，全部 `OK`。
+预期：`23 passed`，另有 5 个 subtests 通过。
 
 运行状态：
 

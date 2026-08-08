@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import pytest
 from fastapi.testclient import TestClient
 
-from potato_gateway.adapters import HubClient, sanitize_hub_payload
+from potato_gateway.adapters import HubClient, HubUnavailableError, sanitize_hub_payload
 from potato_gateway.config import Settings
 from potato_gateway.main import create_app
 
@@ -223,6 +223,207 @@ def test_active_calibration_session_cannot_be_archived(
     )
     assert archived.status_code == 409
     assert "active" in archived.json()["detail"]
+
+
+def test_existing_delivery_submission_skips_creator_and_queues_critic(
+    gateway: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _ = gateway
+    calls: list[tuple[str, str, dict | None]] = []
+    review_attempts = 0
+
+    def asset(asset_id: int, title: str, asset_type: str, role: str) -> dict:
+        return {
+            "id": asset_id,
+            "asset_type": asset_type,
+            "title": title,
+            "mime_type": "video/mp4" if asset_type == "video" else "application/json",
+            "file_size": 100,
+            "width": 1080 if asset_type == "video" else 0,
+            "height": 1920 if asset_type == "video" else 0,
+            "duration_seconds": 15 if asset_type == "video" else 0,
+            "status": "active",
+            "available": True,
+            "suggested_role": role,
+            "preview_available": asset_type != "video",
+        }
+
+    primary = asset(42, "final.mp4", "video", "other")
+    storyboard = asset(43, "storyboard.json", "document", "storyboard")
+
+    def fake_request(self, method, path, payload=None, *, headers=None, sanitize=True):
+        nonlocal review_attempts
+        calls.append((method, path, payload))
+        if method == "GET" and path == "/api/calibration-asset-sources/history-1":
+            return {
+                "source": {
+                    "source_id": "history-1",
+                    "source_type": "session",
+                    "title": "Historical delivery",
+                    "updated_at": "2026-08-08T00:00:00Z",
+                    "recommended_video_asset_id": 42,
+                    "assets": [primary, storyboard],
+                }
+            }
+        if method == "GET" and path == "/api/assets/42/calibration-preview":
+            return {"preview": {"asset": primary, "text_preview": "", "truncated": False}}
+        if method == "GET" and path == "/api/assets/43/calibration-preview":
+            return {
+                "preview": {
+                    "asset": storyboard,
+                    "text_preview": '{"shots": []}',
+                    "truncated": False,
+                }
+            }
+        if method == "POST" and path == "/api/calibration-review-jobs":
+            review_attempts += 1
+            if review_attempts == 1:
+                raise HubUnavailableError("temporary outage")
+            assert payload["source_type"] == "existing_assets"
+            assert payload["support_assets"] == [
+                {"asset_id": 43, "role": "storyboard"}
+            ]
+            return {
+                "calibration_review_job": {
+                    "review_job_id": "historical-review-job",
+                    "status": "queued",
+                }
+            }
+        raise AssertionError((method, path, payload))
+
+    monkeypatch.setattr(HubClient, "request", fake_request)
+    session = client.post(
+        "/api/calibrations",
+        headers=headers(),
+        json={
+            "client_request_id": "historical-session-1",
+            "agent_id": "creator",
+            "transport": "hub",
+            "goal": "Review an existing delivery",
+            "acceptance_criteria": [],
+        },
+    ).json()
+    created = client.post(
+        f"/api/calibrations/{session['session_id']}/submissions",
+        headers=headers(),
+        json={
+            "client_request_id": "historical-submission-1",
+            "primary_video_asset_id": 42,
+            "support_assets": [{"asset_id": 43, "role": "storyboard"}],
+            "source_id": "history-1",
+        },
+    )
+    assert created.status_code == 201
+    submission = created.json()
+    assert submission["source_type"] == "existing_assets"
+    assert submission["execution_id"] is None
+    assert submission["support_assets"][0]["text_preview"] == '{"shots": []}'
+    assert not any(path == "/api/calibration-jobs" for _, path, _ in calls)
+
+    replay = client.post(
+        f"/api/calibrations/{session['session_id']}/submissions",
+        headers=headers(),
+        json={
+            "client_request_id": "historical-submission-1",
+            "primary_video_asset_id": 42,
+            "support_assets": [{"asset_id": 43, "role": "storyboard"}],
+            "source_id": "history-1",
+        },
+    )
+    assert replay.status_code == 200
+    assert replay.json()["submission_id"] == submission["submission_id"]
+
+    conflicting_replay = client.post(
+        f"/api/calibrations/{session['session_id']}/submissions",
+        headers=headers(),
+        json={
+            "client_request_id": "historical-submission-1",
+            "primary_video_asset_id": 42,
+            "support_assets": [],
+            "source_id": "history-1",
+        },
+    )
+    assert conflicting_replay.status_code == 409
+
+    preview = client.get(
+        "/api/calibration-asset-sources/history-1/assets/43/preview",
+        headers=headers(),
+    )
+    assert preview.status_code == 200
+    assert preview.json()["text_preview"] == '{"shots": []}'
+
+    first_review = client.post(
+        f"/api/calibrations/{session['session_id']}/submissions/{submission['submission_id']}/reviews",
+        headers=headers(),
+        json={"client_request_id": "historical-review-1"},
+    )
+    assert first_review.status_code == 503
+
+    review = client.post(
+        f"/api/calibrations/{session['session_id']}/submissions/{submission['submission_id']}/reviews",
+        headers=headers(),
+        json={"client_request_id": "historical-review-1"},
+    )
+    assert review.status_code == 200
+    assert review.json()["submission_id"] == submission["submission_id"]
+    assert review_attempts == 2
+
+
+def test_existing_delivery_requires_available_primary_video(
+    gateway: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _ = gateway
+
+    def fake_request(self, method, path, payload=None, *, headers=None, sanitize=True):
+        if "calibration-asset-sources" in path:
+            return {
+                "source": {
+                    "source_id": "history-bad",
+                    "source_type": "session",
+                    "title": "Bad source",
+                    "updated_at": "",
+                    "recommended_video_asset_id": None,
+                    "assets": [],
+                }
+            }
+        return {
+            "preview": {
+                "asset": {
+                    "id": 50,
+                    "asset_type": "document",
+                    "title": "storyboard.json",
+                    "mime_type": "application/json",
+                    "available": True,
+                    "suggested_role": "storyboard",
+                },
+                "text_preview": "{}",
+                "truncated": False,
+            }
+        }
+
+    monkeypatch.setattr(HubClient, "request", fake_request)
+    session = client.post(
+        "/api/calibrations",
+        headers=headers(),
+        json={
+            "client_request_id": "bad-primary-session",
+            "agent_id": "creator",
+            "transport": "hub",
+            "goal": "Reject invalid primary",
+            "acceptance_criteria": [],
+        },
+    ).json()
+    response = client.post(
+        f"/api/calibrations/{session['session_id']}/submissions",
+        headers=headers(),
+        json={
+            "client_request_id": "bad-primary-submission",
+            "primary_video_asset_id": 50,
+            "support_assets": [],
+            "source_id": "history-bad",
+        },
+    )
+    assert response.status_code == 409
 
 
 def test_creator_calibration_review_returns_scoped_signed_evidence(

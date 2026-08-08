@@ -33,6 +33,7 @@ def test_home_console_links_primary_surfaces(client: TestClient) -> None:
     assert "视频工作流" in response.text
     assert 'href="/calibrations"' in response.text
     assert 'href="/docs"' in response.text
+    assert 'href="/potato-actions-v0.2.5.yaml"' in response.text
 
 
 def test_calibration_console_exposes_session_lifecycle_controls(
@@ -47,18 +48,27 @@ def test_calibration_console_exposes_session_lifecycle_controls(
     assert "archiveSession()" in response.text
     assert "restoreSession()" in response.text
     assert "executeTest()" in response.text
+    assert "历史交付" in response.text
+    assert "createImportedSubmission()" in response.text
 
 
 def test_versioned_action_schema_is_public_and_not_cached(client: TestClient) -> None:
-    response = client.get("/potato-actions-v0.2.4.yaml")
+    response = client.get("/potato-actions-v0.2.5.yaml")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/yaml")
     assert response.headers["cache-control"] == "no-store, max-age=0"
-    assert response.headers["x-potato-schema-build"] == "calibration-review-3.1-20260807"
+    assert (
+        response.headers["x-potato-schema-build"]
+        == "historical-submissions-3.1-20260808"
+    )
     assert response.text.startswith("openapi: 3.1.0")
-    assert "version: 0.2.4" in response.text
+    assert "version: 0.2.5" in response.text
     assert "PublicObjectResponse" not in response.text
+
+    legacy_response = client.get("/potato-actions-v0.2.4.yaml")
+    assert legacy_response.status_code == 200
+    assert "version: 0.2.5" in legacy_response.text
 
 
 def test_status_without_authorization_header_returns_401(client: TestClient) -> None:

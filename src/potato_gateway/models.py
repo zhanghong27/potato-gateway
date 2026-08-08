@@ -283,6 +283,110 @@ class CalibrationExecutionListResponse(StrictModel):
     executions: list[CalibrationExecutionResponse]
 
 
+CalibrationAssetRole = Literal[
+    "storyboard",
+    "sync_timeline",
+    "script",
+    "evidence_manifest",
+    "subtitle",
+    "audio",
+    "cover",
+    "other",
+]
+
+
+class CalibrationAssetSummary(StrictModel):
+    id: int
+    asset_type: str
+    title: str
+    mime_type: str
+    file_size: int
+    width: int
+    height: int
+    duration_seconds: float
+    status: str
+    available: bool
+    suggested_role: CalibrationAssetRole = "other"
+    preview_available: bool = False
+
+
+class CalibrationAssetSourceSummary(StrictModel):
+    source_id: str
+    source_type: Literal["session", "workflow"]
+    title: str
+    updated_at: str
+    asset_count: int
+    available_asset_count: int
+    video_count: int
+    recommended_video_asset_id: int | None
+
+
+class CalibrationAssetSourceListResponse(StrictModel):
+    sources: list[CalibrationAssetSourceSummary]
+
+
+class CalibrationAssetSourceResponse(StrictModel):
+    source_id: str
+    source_type: Literal["session", "workflow"]
+    title: str
+    updated_at: str
+    recommended_video_asset_id: int | None
+    assets: list[CalibrationAssetSummary]
+
+
+class CalibrationSupportAssetInput(StrictModel):
+    asset_id: int = Field(gt=0)
+    role: CalibrationAssetRole
+
+
+class CreateCalibrationSubmissionRequest(StrictModel):
+    client_request_id: str = Field(
+        min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$"
+    )
+    primary_video_asset_id: int = Field(gt=0)
+    support_assets: list[CalibrationSupportAssetInput] = Field(
+        default_factory=list, max_length=50
+    )
+    source_id: str = Field(min_length=1, max_length=160)
+    parent_submission_id: str | None = Field(default=None, max_length=128)
+
+
+class CalibrationSubmissionAsset(StrictModel):
+    asset_id: int
+    role: CalibrationAssetRole
+    asset_type: str
+    title: str
+    mime_type: str
+    available: bool
+    text_preview: str = ""
+    preview_truncated: bool = False
+
+
+class CalibrationSubmissionResponse(StrictModel):
+    submission_id: str
+    session_id: str
+    source_type: Literal["live_execution", "existing_assets"]
+    execution_id: str | None
+    primary_video: CalibrationSubmissionAsset
+    support_assets: list[CalibrationSubmissionAsset]
+    source_id: str | None
+    parent_submission_id: str | None
+    status: Literal["ready", "reviewing", "completed", "failed"]
+    created_at: datetime
+    updated_at: datetime
+
+
+class CalibrationSubmissionListResponse(StrictModel):
+    session_id: str
+    submissions: list[CalibrationSubmissionResponse]
+
+
+class CreateCalibrationSubmissionReviewRequest(StrictModel):
+    client_request_id: str = Field(
+        min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$"
+    )
+
+
 class CreateCalibrationReviewRequest(StrictModel):
     client_request_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
     source_asset_id: int = Field(gt=0)
@@ -292,6 +396,7 @@ class CalibrationReviewResponse(StrictModel):
     review_id: str
     session_id: str
     execution_id: str
+    submission_id: str | None = None
     source_asset_id: int
     status: Literal["queued", "preparing", "reviewing", "completed", "failed"]
     report: dict[str, Any]
