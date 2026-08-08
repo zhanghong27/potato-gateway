@@ -24,6 +24,17 @@ def test_health_without_authentication(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_home_console_links_primary_surfaces(client: TestClient) -> None:
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["cache-control"] == "no-store"
+    assert "视频工作流" in response.text
+    assert 'href="/calibrations"' in response.text
+    assert 'href="/docs"' in response.text
+
+
 def test_versioned_action_schema_is_public_and_not_cached(client: TestClient) -> None:
     response = client.get("/potato-actions-v0.2.4.yaml")
 

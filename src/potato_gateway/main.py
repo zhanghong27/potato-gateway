@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from potato_gateway.calibration_ui import CALIBRATION_HTML
+from potato_gateway.home_ui import HOME_HTML
 
 from potato_gateway.config import Settings, get_settings
 from potato_gateway.routers import (
@@ -56,6 +57,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(calibrations_router)
     app.include_router(prompt_versions_router)
     app.include_router(workflows_router)
+
+    @app.get("/", include_in_schema=False)
+    async def home_console() -> HTMLResponse:
+        return HTMLResponse(HOME_HTML, headers={"Cache-Control": "no-store"})
 
     @app.get("/calibrations", include_in_schema=False)
     async def calibration_console() -> HTMLResponse:
