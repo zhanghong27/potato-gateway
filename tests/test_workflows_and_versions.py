@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -8,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from potato_gateway.adapters import HubClient, HubUnavailableError, sanitize_hub_payload
+from potato_gateway.adapters.hub_client import HubStreamResponse
 from potato_gateway.config import Settings
 from potato_gateway.main import create_app
 
@@ -461,12 +463,45 @@ def test_creator_calibration_review_returns_scoped_signed_evidence(
                     "completed_at": "2026-08-07T09:00:00+00:00",
                 }
             }
+        elif method == "GET" and path == "/api/assets/41/summary":
+            result = {
+                "asset": {
+                    "id": 41,
+                    "asset_type": "video",
+                    "mime_type": "video/mp4",
+                    "title": "candidate.mp4",
+                    "status": "active",
+                    "available": True,
+                }
+            }
         else:
             raise AssertionError((method, path, payload))
         return sanitize_hub_payload(result) if sanitize else result
 
     monkeypatch.setattr(HubClient, "request", fake_request)
-    monkeypatch.setattr(HubClient, "request_bytes", lambda self, path: (b"jpeg", "image/jpeg", "evidence.jpg"))
+    def fake_stream(self, path, *, range_header=""):
+        if range_header:
+            return HubStreamResponse(
+                response=BytesIO(b"pe"),
+                status_code=206,
+                headers={
+                    "Content-Type": "image/jpeg",
+                    "Content-Length": "2",
+                    "Content-Range": "bytes 1-2/4",
+                    "Accept-Ranges": "bytes",
+                },
+            )
+        return HubStreamResponse(
+            response=BytesIO(b"jpeg"),
+            status_code=200,
+            headers={
+                "Content-Type": "image/jpeg",
+                "Content-Length": "4",
+                "Accept-Ranges": "bytes",
+            },
+        )
+
+    monkeypatch.setattr(HubClient, "open_stream", fake_stream)
     session = client.post(
         "/api/calibrations", headers=headers(),
         json={"client_request_id": "review-session", "agent_id": "creator", "transport": "hub", "goal": "Video baseline", "acceptance_criteria": []},
@@ -493,10 +528,26 @@ def test_creator_calibration_review_returns_scoped_signed_evidence(
     ).json()
     assert evidence["frames"][0]["description"] == "Static opening"
     assert len(evidence["openaiFileResponse"]) == 1
+    ui_link = client.get(
+        f"/api/calibrations/{session['session_id']}/assets/41/link",
+        headers=headers(),
+    ).json()
+    assert ui_link["available"] is True
+    assert ui_link["status"] == "active"
+    assert ui_link["playback_error"] == ""
+    assert ui_link["url"].startswith("/api/calibration-evidence/41?")
+    assert "tailscale" not in ui_link["url"]
     signed = urlparse(evidence["contact_sheets"][0]["url"])
     asset_response = client.get(f"{signed.path}?{signed.query}")
     assert asset_response.status_code == 200
     assert asset_response.headers["content-type"] == "image/jpeg"
+    partial = client.get(
+        f"{signed.path}?{signed.query}", headers={"Range": "bytes=1-2"}
+    )
+    assert partial.status_code == 206
+    assert partial.content == b"pe"
+    assert partial.headers["content-range"] == "bytes 1-2/4"
+    assert partial.headers["accept-ranges"] == "bytes"
     assert client.get(f"/api/calibrations/not-this-session/reviews/{review_id}/evidence", headers=headers()).status_code == 404
 
 

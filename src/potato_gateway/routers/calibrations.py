@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Annotated
 
 from fastapi import (
@@ -12,6 +13,7 @@ from fastapi import (
     Response,
     status,
 )
+from fastapi.responses import StreamingResponse
 
 from potato_gateway.adapters import AgentNotRegisteredError, HermesProfileAdapter, HermesProfileSourceError, HubClient, HubNotFoundError, HubUnavailableError
 from potato_gateway.auth import require_bearer_token
@@ -77,6 +79,48 @@ from potato_gateway.services import (
 
 AGENT_IDS = ["researcher", "creator", "critic"]
 router = APIRouter()
+
+
+def stream_hub_asset(
+    hub_client: HubClient,
+    asset_id: int,
+    request: Request,
+    *,
+    not_found_detail: str,
+    unavailable_detail: str,
+) -> StreamingResponse:
+    range_header = request.headers.get("range", "").strip()
+    if range_header and (
+        "," in range_header
+        or not re.fullmatch(r"bytes=\d*-\d*", range_header)
+    ):
+        raise HTTPException(status_code=416, detail="Only one byte range is supported")
+    try:
+        stream = hub_client.open_stream(
+            f"/api/assets/{asset_id}/file", range_header=range_header
+        )
+    except HubNotFoundError:
+        raise HTTPException(status_code=404, detail=not_found_detail) from None
+    except HubUnavailableError:
+        raise HTTPException(status_code=503, detail=unavailable_detail) from None
+    response_headers = {
+        key: value
+        for key, value in stream.headers.items()
+        if key.lower()
+        in {"content-length", "content-range", "accept-ranges"}
+    }
+    response_headers.update(
+        {
+            "Content-Disposition": f'inline; filename="asset-{asset_id}"',
+            "Cache-Control": "private, max-age=300",
+        }
+    )
+    return StreamingResponse(
+        stream.iter_bytes(),
+        status_code=stream.status_code,
+        media_type=stream.headers.get("Content-Type", "application/octet-stream"),
+        headers=response_headers,
+    )
 
 
 def get_calibration_service(request: Request) -> CalibrationService:
@@ -392,7 +436,10 @@ def get_calibration_source_asset_link(
     try:
         return {
             "asset_id": asset_id,
-            "url": service.signed_source_asset_url(source_id, asset_id),
+            "available": True,
+            "status": "active",
+            "url": service.signed_source_asset_path(source_id, asset_id),
+            "playback_error": "",
         }
     except CalibrationSubmissionNotFoundError:
         raise HTTPException(status_code=404, detail="Source asset not found") from None
@@ -428,30 +475,22 @@ def get_signed_calibration_source_asset(
     source_id: Annotated[str, Query(min_length=1, max_length=160)],
     expires: Annotated[int, Query(gt=0)],
     sig: Annotated[str, Query(min_length=64, max_length=64)],
+    request: Request,
     service: Annotated[
         CalibrationSubmissionService,
         Depends(get_calibration_submission_service),
     ],
-) -> Response:
+) -> StreamingResponse:
     if not service.verify_source_asset_signature(
         source_id, asset_id, expires, sig
     ):
         raise HTTPException(status_code=403, detail="Asset link is invalid or expired")
-    try:
-        body, content_type, filename = service.hub_client.request_bytes(
-            f"/api/assets/{asset_id}/file"
-        )
-    except HubNotFoundError:
-        raise HTTPException(status_code=404, detail="Asset not found") from None
-    except HubUnavailableError:
-        raise HTTPException(status_code=503, detail="Asset unavailable") from None
-    return Response(
-        content=body,
-        media_type=content_type,
-        headers={
-            "Content-Disposition": f'inline; filename="{filename.replace(chr(34), "")}"',
-            "Cache-Control": "private, max-age=300",
-        },
+    return stream_hub_asset(
+        service.hub_client,
+        asset_id,
+        request,
+        not_found_detail="Asset not found",
+        unavailable_detail="Asset unavailable",
     )
 
 
@@ -914,16 +953,30 @@ def get_calibration_asset_link(
 ) -> dict[str, object]:
     if not service.review_repository.asset_belongs_to_session(session_id, asset_id):
         raise HTTPException(status_code=404, detail="Calibration asset not found")
+    hub_available = True
     try:
         summary = service.hub_client.request("GET", f"/api/assets/{asset_id}/summary").get("asset", {})
+    except HubNotFoundError:
+        raise HTTPException(status_code=404, detail="Calibration asset not found") from None
     except HubUnavailableError:
         summary = {}
+        hub_available = False
+    asset_status = str(summary.get("status") or ("unavailable" if not hub_available else "missing"))
+    available = bool(summary.get("available")) and asset_status == "active"
+    playback_error = ""
+    if not hub_available:
+        playback_error = "素材服务暂时不可用"
+    elif not available:
+        playback_error = "素材文件不可用或尚未完成入库"
     return {
         "asset_id": asset_id,
         "asset_type": str(summary.get("asset_type") or "other"),
         "mime_type": str(summary.get("mime_type") or "application/octet-stream"),
         "title": str(summary.get("title") or f"Asset #{asset_id}"),
-        "url": service.signed_asset_url(session_id, asset_id),
+        "available": available,
+        "status": asset_status,
+        "url": service.signed_asset_path(session_id, asset_id) if available else "",
+        "playback_error": playback_error,
     }
 
 
@@ -933,20 +986,17 @@ def get_signed_calibration_asset(
     session_id: Annotated[str, Query(min_length=1, max_length=128)],
     expires: Annotated[int, Query(gt=0)],
     sig: Annotated[str, Query(min_length=64, max_length=64)],
+    request: Request,
     service: Annotated[CalibrationReviewService, Depends(get_calibration_review_service)],
-) -> Response:
+) -> StreamingResponse:
     if not service.verify_asset_signature(session_id, asset_id, expires, sig):
         raise HTTPException(status_code=403, detail="Evidence link is invalid or expired")
-    try:
-        body, content_type, filename = service.hub_client.request_bytes(f"/api/assets/{asset_id}/file")
-    except HubNotFoundError:
-        raise HTTPException(status_code=404, detail="Evidence asset not found") from None
-    except HubUnavailableError:
-        raise HTTPException(status_code=503, detail="Evidence asset is temporarily unavailable") from None
-    return Response(
-        content=body,
-        media_type=content_type,
-        headers={"Content-Disposition": f'inline; filename="{filename.replace(chr(34), "")}"', "Cache-Control": "private, max-age=300"},
+    return stream_hub_asset(
+        service.hub_client,
+        asset_id,
+        request,
+        not_found_detail="Evidence asset not found",
+        unavailable_detail="Evidence asset is temporarily unavailable",
     )
 
 

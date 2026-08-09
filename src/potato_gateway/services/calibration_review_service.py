@@ -185,9 +185,12 @@ class CalibrationReviewService:
         )
 
     def signed_asset_url(self, session_id: str, asset_id: int, ttl_seconds: int = 900) -> str:
+        return f"{self.public_base_url}{self.signed_asset_path(session_id, asset_id, ttl_seconds)}"
+
+    def signed_asset_path(self, session_id: str, asset_id: int, ttl_seconds: int = 900) -> str:
         expires = int(time.time()) + ttl_seconds
         signature = self._signature(session_id, asset_id, expires)
-        return f"{self.public_base_url}/api/calibration-evidence/{asset_id}?{urlencode({'session_id': session_id, 'expires': expires, 'sig': signature})}"
+        return f"/api/calibration-evidence/{asset_id}?{urlencode({'session_id': session_id, 'expires': expires, 'sig': signature})}"
 
     def verify_asset_signature(self, session_id: str, asset_id: int, expires: int, signature: str) -> bool:
         if expires < int(time.time()) or expires > int(time.time()) + 1800:

@@ -4,6 +4,7 @@ import json
 import re
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -38,6 +39,20 @@ class HubConflictError(HubClientError):
 
 class HubUnavailableError(HubClientError):
     pass
+
+
+@dataclass
+class HubStreamResponse:
+    response: Any
+    status_code: int
+    headers: dict[str, str]
+
+    def iter_bytes(self, chunk_size: int = 256 * 1024):
+        try:
+            while chunk := self.response.read(chunk_size):
+                yield chunk
+        finally:
+            self.response.close()
 
 
 class HubClient:
@@ -107,6 +122,45 @@ class HubClient:
             raise HubUnavailableError(f"Potato Hub returned HTTP {exc.code}") from None
         except (OSError, urllib.error.URLError, TimeoutError):
             raise HubUnavailableError("Potato Hub is unavailable") from None
+
+    def open_stream(
+        self, path: str, *, range_header: str = ""
+    ) -> HubStreamResponse:
+        headers = {"Accept": "*/*"}
+        if range_header:
+            headers["Range"] = range_header
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+            headers["X-Potato-Hub-Token"] = self.token
+        request = urllib.request.Request(
+            f"{self.base_url}{path}", headers=headers, method="GET"
+        )
+        try:
+            response = urllib.request.urlopen(request, timeout=self.timeout)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                raise HubNotFoundError(path) from None
+            raise HubUnavailableError(
+                f"Potato Hub returned HTTP {exc.code}"
+            ) from None
+        except (OSError, urllib.error.URLError, TimeoutError):
+            raise HubUnavailableError("Potato Hub is unavailable") from None
+        forwarded = {
+            name: value
+            for name in (
+                "Content-Type",
+                "Content-Length",
+                "Content-Range",
+                "Accept-Ranges",
+                "Content-Disposition",
+            )
+            if (value := response.headers.get(name))
+        }
+        return HubStreamResponse(
+            response=response,
+            status_code=int(getattr(response, "status", 200)),
+            headers=forwarded,
+        )
 
     @staticmethod
     def _error_detail(exc: urllib.error.HTTPError) -> str:

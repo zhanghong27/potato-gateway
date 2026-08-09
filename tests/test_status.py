@@ -54,7 +54,11 @@ def test_calibration_console_exposes_session_lifecycle_controls(
     assert "restoreDetailUi(ui)" in response.text
     assert "nextSignature!==detailSignature" in response.text
     assert "基准现场测试" in response.text
-    assert "Prompt 候选与隔离复测" in response.text
+    assert "当前校准轮次" in response.text
+    assert "成片与交付" in response.text
+    assert "评审与证据" in response.text
+    assert "Prompt 改进" in response.text
+    assert "重新获取播放链接" in response.text
     assert "候选版本产物" in response.text
     assert "generateCandidate()" in response.text
     assert "testCandidate(" in response.text

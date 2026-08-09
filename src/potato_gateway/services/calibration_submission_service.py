@@ -55,6 +55,11 @@ class CalibrationSubmissionService:
     def signed_source_asset_url(
         self, source_id: str, asset_id: int, ttl_seconds: int = 900
     ) -> str:
+        return f"{self.public_base_url}{self.signed_source_asset_path(source_id, asset_id, ttl_seconds)}"
+
+    def signed_source_asset_path(
+        self, source_id: str, asset_id: int, ttl_seconds: int = 900
+    ) -> str:
         source = self.get_source(source_id)
         asset = next((item for item in source.assets if item.id == asset_id), None)
         if not asset or not asset.available:
@@ -68,7 +73,7 @@ class CalibrationSubmissionService:
                 "sig": signature,
             }
         )
-        return f"{self.public_base_url}/api/calibration-source-assets/{asset_id}?{query}"
+        return f"/api/calibration-source-assets/{asset_id}?{query}"
 
     def source_asset_preview(
         self, source_id: str, asset_id: int
