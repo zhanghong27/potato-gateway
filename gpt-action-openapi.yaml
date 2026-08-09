@@ -6,8 +6,8 @@ info:
     API for checking Hong's Potato multi-agent system, inspecting registered
     Hermes Agent profiles, running visible multi-agent video workflows, and
     managing structured calibration sessions.
-  version: 0.2.5
-  x-potato-schema-build: historical-submissions-3.1-20260808
+  version: 0.2.6
+  x-potato-schema-build: prompt-closed-loop-3.1-20260809
 
 servers:
   - url: https://zhanghongmac-mini.tail282e0b.ts.net
@@ -638,6 +638,82 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CalibrationEvidence"
+
+  /api/calibrations/{session_id}/prompt-candidates:
+    post:
+      operationId: generatePromptCandidate
+      summary: Generate a draft Prompt candidate from calibration evidence
+      description: >
+        Combines the session goal, acceptance criteria, user feedback, and
+        completed critic reports into a managed addendum on the current active
+        Prompt. The full Prompt remains private and the draft is not activated.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GeneratePromptCandidateRequest"
+      responses:
+        "201":
+          description: Draft candidate generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromptVersionSummary"
+        "200":
+          description: Existing idempotent candidate returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromptVersionSummary"
+
+  /api/calibrations/{session_id}/prompt-candidates/{prompt_version_id}/tests:
+    post:
+      operationId: testPromptCandidate
+      summary: Run an isolated calibration test with a draft Prompt candidate
+      description: >
+        Materializes a candidate-specific Hermes Profile and queues a real
+        Agent turn without changing the active production Prompt.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: prompt_version_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecuteCalibrationTurnRequest"
+      responses:
+        "202":
+          description: Candidate test queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationExecution"
+        "200":
+          description: Existing idempotent candidate test returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationExecution"
 
   /api/agents/{agent_id}/prompt-versions:
     post:
@@ -1427,6 +1503,7 @@ components:
         - asset_ids
         - error
         - hub_job_id
+        - prompt_version_id
         - created_at
         - updated_at
       properties:
@@ -1453,6 +1530,8 @@ components:
         error:
           type: string
         hub_job_id:
+          type: string
+        prompt_version_id:
           type: string
         created_at:
           type: string
@@ -1814,6 +1893,20 @@ components:
           type: string
           maxLength: 128
 
+    GeneratePromptCandidateRequest:
+      type: object
+      additionalProperties: false
+      required: [client_request_id]
+      properties:
+        client_request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._-]+$"
+        additional_guidance:
+          type: string
+          maxLength: 12000
+
     PromptVersionSummary:
       type: object
       additionalProperties: false
@@ -1824,6 +1917,7 @@ components:
         - content_sha256
         - base_content_sha256
         - change_summary
+        - managed_addendum
         - calibration_session_id
         - created_at
         - updated_at
@@ -1843,6 +1937,8 @@ components:
         base_content_sha256:
           type: string
         change_summary:
+          type: string
+        managed_addendum:
           type: string
         calibration_session_id:
           type: string

@@ -554,6 +554,78 @@ def test_prompt_candidate_requires_explicit_hash_promotion_and_can_rollback(
     assert "/api/admin/agents/{agent_id}/prompt-versions/{prompt_version_id}/rollback" not in client.get("/openapi.json").json()["paths"]
 
 
+def test_generated_prompt_candidate_runs_in_an_isolated_profile(
+    gateway: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, hermes_home = gateway
+    queued_payload: dict = {}
+
+    def fake_request(self, method, path, payload=None, *, headers=None, sanitize=True):
+        if method == "POST" and path == "/api/calibration-jobs":
+            queued_payload.update(payload or {})
+            return {"calibration_job": {"job_id": "candidate-job-1", "status": "queued"}}
+        raise AssertionError((method, path, payload))
+
+    monkeypatch.setattr(HubClient, "request", fake_request)
+    session = client.post(
+        "/api/calibrations",
+        headers=headers(),
+        json={
+            "client_request_id": "generated-candidate-session",
+            "agent_id": "creator",
+            "transport": "hub",
+            "goal": "Avoid slideshow-like video",
+            "acceptance_criteria": ["Use genuine motion in every major scene"],
+        },
+    ).json()
+    client.post(
+        f"/api/calibrations/{session['session_id']}/turns",
+        headers=headers(),
+        json={
+            "client_turn_id": "candidate-user-feedback",
+            "actor": "user",
+            "kind": "critique",
+            "content": "Do not use image zooms as a substitute for motion.",
+        },
+    )
+    prompt_path = hermes_home / "profiles" / "video-creator" / "SOUL.md"
+    original = prompt_path.read_text(encoding="utf-8")
+
+    generated = client.post(
+        f"/api/calibrations/{session['session_id']}/prompt-candidates",
+        headers=headers(),
+        json={
+            "client_request_id": "generated-candidate-1",
+            "additional_guidance": "Prefer camera and subject movement.",
+        },
+    )
+    assert generated.status_code == 201
+    candidate = generated.json()
+    assert candidate["status"] == "draft"
+    assert "Use genuine motion" in candidate["managed_addendum"]
+    assert "Do not use image zooms" in candidate["managed_addendum"]
+    assert prompt_path.read_text(encoding="utf-8") == original
+
+    queued = client.post(
+        f"/api/calibrations/{session['session_id']}/prompt-candidates/{candidate['prompt_version_id']}/tests",
+        headers=headers(),
+        json={
+            "client_turn_id": "generated-candidate-test-1",
+            "instruction": "Create the same test video again.",
+        },
+    )
+    assert queued.status_code == 202
+    assert queued.json()["prompt_version_id"] == candidate["prompt_version_id"]
+    assert queued_payload["prompt_version_id"] == candidate["prompt_version_id"]
+    profile_name = queued_payload["profile_override"]
+    assert profile_name.startswith("potato-cal-creator-")
+    isolated_prompt = hermes_home / "profiles" / profile_name / "SOUL.md"
+    assert isolated_prompt.read_text(encoding="utf-8").endswith(
+        "<!-- POTATO CALIBRATION ADDENDUM END -->\n"
+    )
+    assert prompt_path.read_text(encoding="utf-8") == original
+
+
 def test_creator_prompt_activation_is_blocked_by_critic_hard_error(
     gateway: tuple[TestClient, Path],
 ) -> None:
@@ -589,6 +661,69 @@ def test_creator_prompt_activation_is_blocked_by_critic_hard_error(
     )
     assert promoted.status_code == 409
     assert "hard errors" in promoted.json()["detail"]
+
+
+def test_creator_candidate_can_activate_after_its_own_review_clears_hard_errors(
+    gateway: tuple[TestClient, Path],
+) -> None:
+    client, hermes_home = gateway
+    session = client.post(
+        "/api/calibrations",
+        headers=headers(),
+        json={
+            "client_request_id": "resolved-session",
+            "agent_id": "creator",
+            "transport": "hub",
+            "goal": "Resolve the original hard error",
+            "acceptance_criteria": [],
+        },
+    ).json()
+    candidate = client.post(
+        "/api/agents/creator/prompt-versions",
+        headers=headers(),
+        json={
+            "client_request_id": "resolved-candidate",
+            "content": "resolved candidate prompt",
+            "change_summary": "Resolve hard error",
+            "calibration_session_id": session["session_id"],
+        },
+    ).json()
+    database_path = hermes_home / "gateway" / "gateway.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO calibration_executions(
+                execution_id, session_id, client_turn_id, agent_id, status,
+                instruction, prompt_version_id, created_at, updated_at
+            ) VALUES ('resolved-exec', ?, 'resolved-exec-turn', 'creator',
+                'completed', 'Repeat baseline', ?, '2026-08-09T01:00:00+00:00',
+                '2026-08-09T01:00:00+00:00')
+            """,
+            (session["session_id"], candidate["prompt_version_id"]),
+        )
+        connection.execute(
+            """
+            INSERT INTO calibration_reviews(
+                review_id, client_request_id, session_id, execution_id,
+                source_asset_id, status, report_json, created_at, updated_at,
+                completed_at
+            ) VALUES ('resolved-review', 'resolved-review-key', ?,
+                'resolved-exec', 1, 'completed',
+                '{"verdict":"pass","hard_errors":[]}',
+                '2026-08-09T01:10:00+00:00', '2026-08-09T01:10:00+00:00',
+                '2026-08-09T01:10:00+00:00')
+            """,
+            (session["session_id"],),
+        )
+        connection.commit()
+
+    promoted = client.post(
+        f"/api/admin/agents/creator/prompt-versions/{candidate['prompt_version_id']}/promote",
+        headers=headers(),
+        json={"confirm_content_sha256": candidate["content_sha256"]},
+    )
+    assert promoted.status_code == 200
+    assert promoted.json()["status"] == "active"
 
 
 def test_workflow_action_uses_idempotency_and_sanitizes_hub_response(
@@ -674,5 +809,7 @@ def test_new_action_operation_ids_are_exposed(gateway: tuple[TestClient, Path]) 
         "getCalibrationReview",
         "getCalibrationEvidence",
         "createPromptCandidate",
+        "generatePromptCandidate",
+        "testPromptCandidate",
         "listPromptVersions",
     } <= operation_ids

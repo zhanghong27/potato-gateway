@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-MIGRATION_VERSION = 4
+MIGRATION_VERSION = 5
 BUSY_TIMEOUT_MS = 5_000
 LOGGER = logging.getLogger("potato_gateway.database")
 APP_DATABASE_LOCK = threading.Lock()
@@ -76,6 +76,12 @@ class Database:
                         connection.execute(
                             "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
                             (4, self.utc_now()),
+                        )
+                    if 5 not in applied:
+                        self._apply_v5(connection)
+                        connection.execute(
+                            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                            (5, self.utc_now()),
                         )
                     connection.commit()
                     connection.execute("PRAGMA foreign_keys = ON")
@@ -347,6 +353,14 @@ class Database:
         )
         connection.execute(
             "CREATE INDEX idx_calibration_reviews_submission ON calibration_reviews(submission_id, created_at DESC)"
+        )
+
+    def _apply_v5(self, connection: sqlite3.Connection) -> None:
+        connection.execute(
+            "ALTER TABLE calibration_executions ADD COLUMN prompt_version_id TEXT NOT NULL DEFAULT ''"
+        )
+        connection.execute(
+            "CREATE INDEX idx_calibration_executions_prompt_version ON calibration_executions(prompt_version_id, created_at DESC)"
         )
 
     def _resolve_database_path(self, path: Path) -> Path:

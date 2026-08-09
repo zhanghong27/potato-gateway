@@ -34,7 +34,7 @@ HOME_HTML = r'''<!doctype html>
     </section>
     <section class="tools"><div class="tools-head"><h2>工具</h2></div><div class="tools-list">
       <a class="tool" href="/docs"><div class="tool-icon">API</div><div><strong>接口文档</strong><span>Swagger UI</span></div><div class="go">→</div></a>
-      <a class="tool" href="/potato-actions-v0.2.5.yaml"><div class="tool-icon">YML</div><div><strong>Actions Schema</strong><span>OpenAPI 3.1</span></div><div class="go">→</div></a>
+      <a class="tool" href="/potato-actions-v0.2.6.yaml"><div class="tool-icon">YML</div><div><strong>Actions Schema</strong><span>OpenAPI 3.1</span></div><div class="go">→</div></a>
       <a class="tool" id="hubHome" href="http://127.0.0.1:8787/"><div class="tool-icon">HUB</div><div><strong>Hub 消息台</strong><span>Session 与素材</span></div><div class="go">→</div></a>
     </div></section>
     <section id="agents"><div class="tools-head"><h2>Agents</h2></div><div class="agent-row" id="agentRow"></div></section>

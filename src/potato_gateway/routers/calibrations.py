@@ -13,7 +13,7 @@ from fastapi import (
     status,
 )
 
-from potato_gateway.adapters import AgentNotRegisteredError, HermesProfileSourceError, HubClient, HubNotFoundError, HubUnavailableError
+from potato_gateway.adapters import AgentNotRegisteredError, HermesProfileAdapter, HermesProfileSourceError, HubClient, HubNotFoundError, HubUnavailableError
 from potato_gateway.auth import require_bearer_token
 from potato_gateway.database import DatabaseUnavailableError, get_app_database
 from potato_gateway.models import (
@@ -54,6 +54,9 @@ from potato_gateway.repositories import (
     CalibrationSubmissionConflictError,
     CalibrationSubmissionNotFoundError,
     CalibrationSubmissionRepository,
+    PromptVersionConflictError,
+    PromptVersionNotFoundError,
+    PromptVersionRepository,
 )
 from potato_gateway.services import (
     AgentProfileUnavailableError,
@@ -65,6 +68,8 @@ from potato_gateway.services import (
     CalibrationReviewServiceUnavailableError,
     CalibrationSubmissionService,
     CalibrationSubmissionServiceUnavailableError,
+    PromptVersionService,
+    PromptVersionServiceUnavailableError,
     build_agent_profile_service,
 )
 
@@ -116,6 +121,27 @@ def get_calibration_execution_service(request: Request) -> CalibrationExecutionS
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Calibration execution data is temporarily unavailable",
+        ) from None
+
+
+def get_calibration_prompt_service(request: Request) -> PromptVersionService:
+    settings = request.app.state.settings
+    try:
+        database = get_app_database(
+            request.app,
+            path=settings.database_path,
+            hermes_home=settings.hermes_home,
+        )
+        return PromptVersionService(
+            PromptVersionRepository(database),
+            HermesProfileAdapter(settings.hermes_home, settings.agent_registry_path),
+            CalibrationReviewRepository(database),
+            CalibrationSessionRepository(database),
+        )
+    except (DatabaseUnavailableError, HermesProfileSourceError):
+        raise HTTPException(
+            status_code=503,
+            detail="Prompt candidate data is temporarily unavailable",
         ) from None
 
 
@@ -663,6 +689,67 @@ def execute_calibration_turn(
         raise HTTPException(status_code=409, detail=str(exc)) from None
     except CalibrationExecutionServiceUnavailableError:
         raise HTTPException(status_code=503, detail="Calibration execution is temporarily unavailable") from None
+    request.state.session_id = session_id
+    request.state.turn_id = execution.execution_id
+    request.state.agent_id = execution.agent_id
+    response.status_code = status.HTTP_202_ACCEPTED if created else status.HTTP_200_OK
+    return execution
+
+
+@router.post(
+    "/api/calibrations/{session_id}/prompt-candidates/{prompt_version_id}/tests",
+    response_model=CalibrationExecutionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="testPromptCandidate",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+    responses={
+        200: {"model": CalibrationExecutionResponse, "description": "Idempotent replay"},
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+def test_prompt_candidate(
+    session_id: Annotated[str, Path(min_length=1, max_length=128)],
+    prompt_version_id: Annotated[str, Path(min_length=1, max_length=128)],
+    payload: ExecuteCalibrationTurnRequest,
+    request: Request,
+    response: Response,
+    execution_service: Annotated[
+        CalibrationExecutionService, Depends(get_calibration_execution_service)
+    ],
+    prompt_service: Annotated[
+        PromptVersionService, Depends(get_calibration_prompt_service)
+    ],
+) -> CalibrationExecutionResponse:
+    try:
+        session = (
+            prompt_service.session_repository.get_session(session_id)
+            if prompt_service.session_repository
+            else None
+        )
+        if session is None:
+            raise CalibrationSessionNotFoundError(session_id)
+        _candidate, profile_name = prompt_service.prepare_test(
+            session.agent_id, session_id, prompt_version_id
+        )
+        execution, created = execution_service.execute(
+            session_id,
+            payload,
+            prompt_version_id=prompt_version_id,
+            profile_override=profile_name,
+        )
+    except (CalibrationSessionNotFoundError, PromptVersionNotFoundError):
+        raise HTTPException(status_code=404, detail="Prompt candidate not found") from None
+    except (CalibrationExecutionConflictError, PromptVersionConflictError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except (
+        CalibrationExecutionServiceUnavailableError,
+        PromptVersionServiceUnavailableError,
+    ):
+        raise HTTPException(status_code=503, detail="Prompt candidate test could not be queued") from None
     request.state.session_id = session_id
     request.state.turn_id = execution.execution_id
     request.state.agent_id = execution.agent_id

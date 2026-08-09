@@ -45,10 +45,10 @@ def test_custom_gpt_action_schema_uses_explicit_objects_and_parameters() -> None
     schemas = document["components"]["schemas"]
 
     assert document["openapi"] == "3.1.0"
-    assert document["info"]["version"] == "0.2.5"
+    assert document["info"]["version"] == "0.2.6"
     assert (
         document["info"]["x-potato-schema-build"]
-        == "historical-submissions-3.1-20260808"
+        == "prompt-closed-loop-3.1-20260809"
     )
 
     operation_ids: list[str] = []
@@ -67,7 +67,7 @@ def test_custom_gpt_action_schema_uses_explicit_objects_and_parameters() -> None
             }
             assert path_names == placeholders, (route, method, path_names, placeholders)
 
-    assert len(operation_ids) == 28
+    assert len(operation_ids) == 30
     assert len(operation_ids) == len(set(operation_ids))
 
     for path, value in _walk(document):

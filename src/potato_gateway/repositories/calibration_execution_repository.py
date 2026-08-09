@@ -32,6 +32,7 @@ class CalibrationExecutionRecord:
     asset_ids: list[int]
     error: str
     hub_job_id: str
+    prompt_version_id: str
     created_at: str
     updated_at: str
 
@@ -47,6 +48,7 @@ class CalibrationExecutionRepository:
         client_turn_id: str,
         agent_id: str,
         instruction: str,
+        prompt_version_id: str = "",
     ) -> tuple[CalibrationExecutionRecord, bool]:
         self.database.initialize()
         try:
@@ -78,10 +80,19 @@ class CalibrationExecutionRepository:
                     """
                     INSERT INTO calibration_executions(
                         execution_id, session_id, client_turn_id, agent_id,
-                        status, instruction, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)
+                        status, instruction, prompt_version_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)
                     """,
-                    (execution_id, session_id, client_turn_id, agent_id, instruction, now, now),
+                    (
+                        execution_id,
+                        session_id,
+                        client_turn_id,
+                        agent_id,
+                        instruction,
+                        prompt_version_id,
+                        now,
+                        now,
+                    ),
                 )
                 row = connection.execute(
                     "SELECT * FROM calibration_executions WHERE execution_id = ?",
@@ -194,6 +205,7 @@ class CalibrationExecutionRepository:
             asset_ids=asset_ids,
             error=row["error"],
             hub_job_id=row["hub_job_id"],
+            prompt_version_id=row["prompt_version_id"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

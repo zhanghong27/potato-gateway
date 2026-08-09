@@ -68,7 +68,11 @@ class CalibrationSubmissionRepository:
         execution_id: str,
         primary_video_asset_id: int,
         support_assets: list[dict[str, object]],
+        parent_submission_id: str = "",
     ) -> CalibrationSubmissionRecord:
+        existing = self.get_for_execution(execution_id)
+        if existing is not None:
+            return existing
         record, _created = self._create(
             client_request_id=f"live.{execution_id}",
             session_id=session_id,
@@ -77,9 +81,23 @@ class CalibrationSubmissionRepository:
             primary_video_asset_id=primary_video_asset_id,
             support_assets=support_assets,
             source_id="",
-            parent_submission_id="",
+            parent_submission_id=parent_submission_id,
         )
         return record
+
+    def get_for_execution(
+        self, execution_id: str
+    ) -> CalibrationSubmissionRecord | None:
+        self.database.initialize()
+        try:
+            with self.database.connection() as connection:
+                row = connection.execute(
+                    "SELECT * FROM calibration_submissions WHERE execution_id = ?",
+                    (execution_id,),
+                ).fetchone()
+            return self._from_row(row) if row else None
+        except (DatabaseUnavailableError, sqlite3.Error, ValueError, TypeError):
+            raise CalibrationSubmissionPersistenceError from None
 
     def _create(
         self,

@@ -274,6 +274,7 @@ class CalibrationExecutionResponse(StrictModel):
     asset_ids: list[int]
     error: str | None
     hub_job_id: str | None
+    prompt_version_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -445,6 +446,16 @@ class CreatePromptCandidateRequest(StrictModel):
     calibration_session_id: str | None = Field(default=None, max_length=128)
 
 
+class GeneratePromptCandidateRequest(StrictModel):
+    client_request_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    additional_guidance: str = Field(default="", max_length=12_000)
+
+    @field_validator("additional_guidance")
+    @classmethod
+    def validate_guidance(cls, value: str) -> str:
+        return reject_local_paths(value)
+
+
 class PromptVersionSummary(StrictModel):
     prompt_version_id: str
     agent_id: str
@@ -452,6 +463,7 @@ class PromptVersionSummary(StrictModel):
     content_sha256: str
     base_content_sha256: str
     change_summary: str
+    managed_addendum: str | None = None
     calibration_session_id: str | None
     created_at: datetime
     updated_at: datetime

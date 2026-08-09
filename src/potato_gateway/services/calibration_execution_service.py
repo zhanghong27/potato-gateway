@@ -32,7 +32,12 @@ class CalibrationExecutionService:
         self.hub_client = hub_client
 
     def execute(
-        self, session_id: str, request: ExecuteCalibrationTurnRequest
+        self,
+        session_id: str,
+        request: ExecuteCalibrationTurnRequest,
+        *,
+        prompt_version_id: str = "",
+        profile_override: str = "",
     ) -> tuple[CalibrationExecutionResponse, bool]:
         try:
             session = self.session_repository.get_session(session_id)
@@ -43,6 +48,7 @@ class CalibrationExecutionService:
                 client_turn_id=request.client_turn_id,
                 agent_id=session.agent_id,
                 instruction=request.instruction,
+                prompt_version_id=prompt_version_id,
             )
             if not created:
                 return self._response(record), False
@@ -62,6 +68,8 @@ class CalibrationExecutionService:
                         "session_id": session_id,
                         "agent_id": session.agent_id,
                         "instruction": request.instruction,
+                        "prompt_version_id": prompt_version_id,
+                        "profile_override": profile_override,
                     },
                     sanitize=False,
                 )
@@ -154,6 +162,7 @@ class CalibrationExecutionService:
             asset_ids=record.asset_ids,
             error=record.error or None,
             hub_job_id=record.hub_job_id or None,
+            prompt_version_id=record.prompt_version_id or None,
             created_at=record.created_at,
             updated_at=record.updated_at,
         )

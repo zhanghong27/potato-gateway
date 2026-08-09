@@ -10,12 +10,15 @@ from potato_gateway.database import DatabaseUnavailableError, get_app_database
 from potato_gateway.models import (
     CreatePromptCandidateRequest,
     ErrorResponse,
+    GeneratePromptCandidateRequest,
     PromotePromptVersionRequest,
     PromptVersionListResponse,
     PromptVersionSummary,
 )
 from potato_gateway.repositories import (
     CalibrationReviewRepository,
+    CalibrationSessionNotFoundError,
+    CalibrationSessionRepository,
     PromptVersionConflictError,
     PromptVersionNotFoundError,
     PromptVersionRepository,
@@ -39,6 +42,7 @@ def get_prompt_version_service(request: Request) -> PromptVersionService:
             PromptVersionRepository(database),
             HermesProfileAdapter(settings.hermes_home, settings.agent_registry_path),
             CalibrationReviewRepository(database),
+            CalibrationSessionRepository(database),
         )
     except (DatabaseUnavailableError, HermesProfileSourceError):
         raise HTTPException(status_code=503, detail="Prompt version data is unavailable") from None
@@ -69,6 +73,48 @@ def create_prompt_candidate(
         raise HTTPException(status_code=409, detail="Prompt version idempotency conflict") from None
     except PromptVersionServiceUnavailableError:
         raise HTTPException(status_code=503, detail="Prompt version data is unavailable") from None
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    return version
+
+
+@router.post(
+    "/api/calibrations/{session_id}/prompt-candidates",
+    response_model=PromptVersionSummary,
+    status_code=status.HTTP_201_CREATED,
+    operation_id="generatePromptCandidate",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["prompt-versions"],
+    responses={
+        200: {"model": PromptVersionSummary, "description": "Idempotent replay"},
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+def generate_prompt_candidate(
+    session_id: Annotated[str, Path(min_length=1, max_length=128)],
+    payload: GeneratePromptCandidateRequest,
+    response: Response,
+    service: Annotated[PromptVersionService, Depends(get_prompt_version_service)],
+) -> PromptVersionSummary:
+    try:
+        session = (
+            service.session_repository.get_session(session_id)
+            if service.session_repository
+            else None
+        )
+        if session is None:
+            raise CalibrationSessionNotFoundError(session_id)
+        version, created = service.generate_candidate(
+            session.agent_id, session_id, payload
+        )
+    except CalibrationSessionNotFoundError:
+        raise HTTPException(status_code=404, detail="Calibration session not found") from None
+    except PromptVersionConflictError:
+        raise HTTPException(status_code=409, detail="Prompt candidate idempotency conflict") from None
+    except PromptVersionServiceUnavailableError:
+        raise HTTPException(status_code=503, detail="Prompt candidate generation failed") from None
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return version
 

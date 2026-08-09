@@ -224,8 +224,12 @@ class CalibrationSubmissionService:
             raise CalibrationSubmissionServiceUnavailableError from None
 
     def _sync_live_executions(self, session_id: str) -> None:
-        for execution in self.execution_repository.list_for_session(session_id):
+        for execution in reversed(
+            self.execution_repository.list_for_session(session_id)
+        ):
             if execution.status != "completed" or not execution.asset_ids:
+                continue
+            if self.repository.get_for_execution(execution.execution_id) is not None:
                 continue
             assets = [self._asset_preview(asset_id) for asset_id in execution.asset_ids]
             videos = [asset for asset in assets if asset.asset_type == "video" and asset.available]
@@ -237,11 +241,17 @@ class CalibrationSubmissionService:
                 for asset in assets
                 if asset.asset_id != primary.asset_id and asset.available
             ]
+            prior = self.repository.list_for_session(session_id)
             self.repository.ensure_live(
                 session_id=session_id,
                 execution_id=execution.execution_id,
                 primary_video_asset_id=primary.asset_id,
                 support_assets=support,
+                parent_submission_id=(
+                    prior[0].submission_id
+                    if execution.prompt_version_id and prior
+                    else ""
+                ),
             )
 
     def _asset_preview(

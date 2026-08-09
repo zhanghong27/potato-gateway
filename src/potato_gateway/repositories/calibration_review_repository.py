@@ -252,6 +252,47 @@ class CalibrationReviewRepository:
     def session_has_hard_errors(self, session_id: str) -> bool:
         return any(bool(record.report.get("hard_errors")) for record in self.list_for_session(session_id) if record.status == "completed")
 
+    def prompt_version_activation_blocker(
+        self,
+        prompt_version_id: str,
+        session_id: str,
+        *,
+        require_review: bool,
+    ) -> str:
+        self.database.initialize()
+        try:
+            with self.database.connection() as connection:
+                execution = connection.execute(
+                    """
+                    SELECT * FROM calibration_executions
+                    WHERE prompt_version_id = ?
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                    (prompt_version_id,),
+                ).fetchone()
+                if not execution or execution["status"] != "completed":
+                    if self.session_has_hard_errors(session_id):
+                        return "unresolved critic hard errors block creator prompt activation"
+                    return "candidate Prompt must complete an isolated calibration test before activation"
+                if not require_review:
+                    return ""
+                review = connection.execute(
+                    """
+                    SELECT * FROM calibration_reviews
+                    WHERE execution_id = ? AND status = 'completed'
+                    ORDER BY completed_at DESC, created_at DESC LIMIT 1
+                    """,
+                    (execution["execution_id"],),
+                ).fetchone()
+            if not review:
+                return "candidate test must complete critic review before activation"
+            report = json.loads(review["report_json"] or "{}")
+            if report.get("hard_errors"):
+                return "unresolved critic hard errors block creator prompt activation"
+            return ""
+        except (DatabaseUnavailableError, sqlite3.Error, json.JSONDecodeError):
+            raise CalibrationReviewPersistenceError from None
+
     @staticmethod
     def _from_row(row: sqlite3.Row) -> CalibrationReviewRecord:
         return CalibrationReviewRecord(
