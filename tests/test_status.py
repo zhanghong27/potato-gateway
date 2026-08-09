@@ -50,6 +50,11 @@ def test_calibration_console_exposes_session_lifecycle_controls(
     assert "executeTest()" in response.text
     assert "历史交付" in response.text
     assert "createImportedSubmission()" in response.text
+    assert "captureDetailUi()" in response.text
+    assert "restoreDetailUi(ui)" in response.text
+    assert "nextSignature!==detailSignature" in response.text
+    assert "现场测试与真实结果" in response.text
+    assert "Prompt 版本与改进草案" in response.text
 
 
 def test_versioned_action_schema_is_public_and_not_cached(client: TestClient) -> None:
