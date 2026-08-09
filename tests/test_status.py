@@ -53,13 +53,15 @@ def test_calibration_console_exposes_session_lifecycle_controls(
     assert "captureDetailUi()" in response.text
     assert "restoreDetailUi(ui)" in response.text
     assert "nextSignature!==detailSignature" in response.text
-    assert "现场测试与真实结果" in response.text
-    assert "Prompt 版本与改进草案" in response.text
+    assert "基准现场测试" in response.text
+    assert "Prompt 候选与隔离复测" in response.text
+    assert "候选版本产物" in response.text
     assert "generateCandidate()" in response.text
     assert "testCandidate(" in response.text
     assert "activateCandidate(" in response.text
-    assert "额外复测要求（可选）" in response.text
-    assert "Gateway 规则编译器" in response.text
+    assert "额外复测要求" in response.text
+    assert "你无需填写" in response.text
+    assert "Gateway 会把校准目标" in response.text
 
 
 def test_versioned_action_schema_is_public_and_not_cached(client: TestClient) -> None:
