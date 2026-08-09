@@ -6,8 +6,8 @@ info:
     API for checking Hong's Potato multi-agent system, inspecting registered
     Hermes Agent profiles, running visible multi-agent video workflows, and
     managing structured calibration sessions.
-  version: 0.2.6
-  x-potato-schema-build: prompt-closed-loop-3.1-20260809
+  version: 0.2.7
+  x-potato-schema-build: optional-candidate-test-3.1-20260809
 
 servers:
   - url: https://zhanghongmac-mini.tail282e0b.ts.net
@@ -700,7 +700,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ExecuteCalibrationTurnRequest"
+              $ref: "#/components/schemas/TestPromptCandidateRequest"
       responses:
         "202":
           description: Candidate test queued
@@ -1487,6 +1487,20 @@ components:
         instruction:
           type: string
           minLength: 1
+          maxLength: 50000
+
+    TestPromptCandidateRequest:
+      type: object
+      additionalProperties: false
+      required: [client_turn_id]
+      properties:
+        client_turn_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._-]+$"
+        instruction:
+          type: string
           maxLength: 50000
 
     CalibrationExecution:

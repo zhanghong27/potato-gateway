@@ -38,6 +38,7 @@ from potato_gateway.models import (
     ErrorResponse,
     ExecuteCalibrationTurnRequest,
     RecordCalibrationTurnRequest,
+    TestPromptCandidateRequest,
 )
 from potato_gateway.repositories import (
     CalibrationSessionNotFoundError,
@@ -714,7 +715,7 @@ def execute_calibration_turn(
 def test_prompt_candidate(
     session_id: Annotated[str, Path(min_length=1, max_length=128)],
     prompt_version_id: Annotated[str, Path(min_length=1, max_length=128)],
-    payload: ExecuteCalibrationTurnRequest,
+    payload: TestPromptCandidateRequest,
     request: Request,
     response: Response,
     execution_service: Annotated[
@@ -735,9 +736,12 @@ def test_prompt_candidate(
         _candidate, profile_name = prompt_service.prepare_test(
             session.agent_id, session_id, prompt_version_id
         )
+        generated_request = execution_service.build_candidate_test_request(
+            session_id, payload
+        )
         execution, created = execution_service.execute(
             session_id,
-            payload,
+            generated_request,
             prompt_version_id=prompt_version_id,
             profile_override=profile_name,
         )

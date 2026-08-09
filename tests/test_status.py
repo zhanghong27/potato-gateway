@@ -33,7 +33,7 @@ def test_home_console_links_primary_surfaces(client: TestClient) -> None:
     assert "视频工作流" in response.text
     assert 'href="/calibrations"' in response.text
     assert 'href="/docs"' in response.text
-    assert 'href="/potato-actions-v0.2.6.yaml"' in response.text
+    assert 'href="/potato-actions-v0.2.7.yaml"' in response.text
 
 
 def test_calibration_console_exposes_session_lifecycle_controls(
@@ -58,25 +58,27 @@ def test_calibration_console_exposes_session_lifecycle_controls(
     assert "generateCandidate()" in response.text
     assert "testCandidate(" in response.text
     assert "activateCandidate(" in response.text
+    assert "额外复测要求（可选）" in response.text
+    assert "Gateway 规则编译器" in response.text
 
 
 def test_versioned_action_schema_is_public_and_not_cached(client: TestClient) -> None:
-    response = client.get("/potato-actions-v0.2.6.yaml")
+    response = client.get("/potato-actions-v0.2.7.yaml")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/yaml")
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert (
         response.headers["x-potato-schema-build"]
-        == "prompt-closed-loop-3.1-20260809"
+        == "optional-candidate-test-3.1-20260809"
     )
     assert response.text.startswith("openapi: 3.1.0")
-    assert "version: 0.2.6" in response.text
+    assert "version: 0.2.7" in response.text
     assert "PublicObjectResponse" not in response.text
 
-    legacy_response = client.get("/potato-actions-v0.2.5.yaml")
+    legacy_response = client.get("/potato-actions-v0.2.6.yaml")
     assert legacy_response.status_code == 200
-    assert "version: 0.2.6" in legacy_response.text
+    assert "version: 0.2.7" in legacy_response.text
 
 
 def test_status_without_authorization_header_returns_401(client: TestClient) -> None:

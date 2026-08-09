@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic import ValidationError
 
 from potato_gateway.adapters import HubClient, HubUnavailableError
-from potato_gateway.models import CalibrationExecutionListResponse, CalibrationExecutionResponse, ExecuteCalibrationTurnRequest
+from potato_gateway.models import CalibrationExecutionListResponse, CalibrationExecutionResponse, ExecuteCalibrationTurnRequest, TestPromptCandidateRequest
 from potato_gateway.repositories import (
     CalibrationExecutionConflictError,
     CalibrationExecutionNotFoundError,
@@ -30,6 +30,64 @@ class CalibrationExecutionService:
         self.execution_repository = execution_repository
         self.session_repository = session_repository
         self.hub_client = hub_client
+
+    def build_candidate_test_request(
+        self,
+        session_id: str,
+        request: TestPromptCandidateRequest,
+    ) -> ExecuteCalibrationTurnRequest:
+        try:
+            session = self.session_repository.get_session(session_id)
+            if session is None:
+                raise CalibrationSessionNotFoundError(session_id)
+            baseline = next(
+                (
+                    item
+                    for item in self.execution_repository.list_for_session(session_id)
+                    if not item.prompt_version_id
+                ),
+                None,
+            )
+            role_task = {
+                "creator": "自主选择一个能充分检验目标的具体题材，生成可播放的视频和必要交付件。",
+                "researcher": "自主选择一个能充分检验目标的具体题材，完成带来源和待确认事实的研究包。",
+                "critic": "使用 Session 中已有材料完成一次独立、可追溯的结构化评审。",
+            }.get(session.agent_id, "完成一次能够充分检验目标的真实交付。")
+            lines = [
+                "这是候选 Prompt 的隔离复测。请真实执行完整任务，不要只解释做法。",
+                f"校准目标：{session.goal}",
+            ]
+            if session.acceptance_criteria:
+                lines.extend(
+                    [
+                        "验收标准：",
+                        *[f"- {item}" for item in session.acceptance_criteria],
+                    ]
+                )
+            if baseline is not None:
+                lines.extend(
+                    [
+                        "为保证前后结果可比较，请重新执行下面的原始基准任务：",
+                        baseline.instruction,
+                    ]
+                )
+            else:
+                lines.extend(["本 Session 没有现场基准任务。", role_task])
+            if request.instruction.strip():
+                lines.extend(
+                    [
+                        "用户本轮追加要求：",
+                        request.instruction.strip(),
+                    ]
+                )
+            return ExecuteCalibrationTurnRequest(
+                client_turn_id=request.client_turn_id,
+                instruction="\n".join(lines),
+            )
+        except CalibrationSessionNotFoundError:
+            raise
+        except CalibrationExecutionPersistenceError:
+            raise CalibrationExecutionServiceUnavailableError from None
 
     def execute(
         self,

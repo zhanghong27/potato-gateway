@@ -263,6 +263,16 @@ class ExecuteCalibrationTurnRequest(StrictModel):
         return reject_local_paths(value)
 
 
+class TestPromptCandidateRequest(StrictModel):
+    client_turn_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    instruction: str = Field(default="", max_length=50_000)
+
+    @field_validator("instruction")
+    @classmethod
+    def validate_optional_instruction(cls, value: str) -> str:
+        return reject_local_paths(value)
+
+
 class CalibrationExecutionResponse(StrictModel):
     execution_id: str
     session_id: str

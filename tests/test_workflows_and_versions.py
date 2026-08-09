@@ -611,12 +611,14 @@ def test_generated_prompt_candidate_runs_in_an_isolated_profile(
         headers=headers(),
         json={
             "client_turn_id": "generated-candidate-test-1",
-            "instruction": "Create the same test video again.",
         },
     )
     assert queued.status_code == 202
     assert queued.json()["prompt_version_id"] == candidate["prompt_version_id"]
     assert queued_payload["prompt_version_id"] == candidate["prompt_version_id"]
+    assert "Avoid slideshow-like video" in queued_payload["instruction"]
+    assert "Use genuine motion in every major scene" in queued_payload["instruction"]
+    assert "本 Session 没有现场基准任务" in queued_payload["instruction"]
     profile_name = queued_payload["profile_override"]
     assert profile_name.startswith("potato-cal-creator-")
     isolated_prompt = hermes_home / "profiles" / profile_name / "SOUL.md"
