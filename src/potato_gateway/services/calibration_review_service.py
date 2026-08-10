@@ -70,6 +70,7 @@ class CalibrationReviewService:
                         "source_calibration_job_id": execution.hub_job_id,
                         "source_execution_id": execution_id,
                         "source_asset_id": request.source_asset_id,
+                        "review_context": self._review_context(session_id),
                     },
                     sanitize=False,
                 )
@@ -87,6 +88,9 @@ class CalibrationReviewService:
         self, session_id: str, submission_id: str, client_request_id: str
     ) -> tuple[CalibrationReviewResponse, bool]:
         try:
+            session = self.session_repository.get_session(session_id)
+            if session is None:
+                raise CalibrationSessionNotFoundError(session_id)
             submission = self.submission_repository.get(submission_id)
             if submission.session_id != session_id:
                 raise CalibrationSubmissionNotFoundError(submission_id)
@@ -117,6 +121,7 @@ class CalibrationReviewService:
                             for item in submission.support_assets
                         ],
                         "support_assets": submission.support_assets,
+                        "review_context": self._review_context(session_id),
                     },
                     sanitize=False,
                 )
@@ -128,6 +133,7 @@ class CalibrationReviewService:
                 )
             return self._response(record), created
         except (
+            CalibrationSessionNotFoundError,
             CalibrationSubmissionNotFoundError,
             CalibrationReviewNotFoundError,
             CalibrationReviewConflictError,
@@ -142,6 +148,21 @@ class CalibrationReviewService:
             ValidationError,
         ):
             raise CalibrationReviewServiceUnavailableError from None
+
+    def _review_context(self, session_id: str) -> dict:
+        session = self.session_repository.get_session(session_id)
+        if session is None:
+            raise CalibrationSessionNotFoundError(session_id)
+        feedback = [
+            turn.content
+            for turn in self.session_repository.list_turns(session_id)
+            if turn.actor in {"user", "commander"} and turn.kind == "critique"
+        ]
+        return {
+            "goal": session.goal,
+            "acceptance_criteria": session.acceptance_criteria,
+            "user_feedback": feedback[-10:],
+        }
 
     def get(self, session_id: str, review_id: str) -> CalibrationReviewResponse:
         return self._response(self._sync(session_id, review_id))

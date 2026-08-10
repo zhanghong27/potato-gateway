@@ -282,6 +282,11 @@ def test_existing_delivery_submission_skips_creator_and_queues_critic(
             if review_attempts == 1:
                 raise HubUnavailableError("temporary outage")
             assert payload["source_type"] == "existing_assets"
+            assert payload["review_context"] == {
+                "goal": "Review an existing delivery",
+                "acceptance_criteria": ["Keep the video visually dynamic"],
+                "user_feedback": [],
+            }
             assert payload["support_assets"] == [
                 {"asset_id": 43, "role": "storyboard"}
             ]
@@ -302,7 +307,7 @@ def test_existing_delivery_submission_skips_creator_and_queues_critic(
             "agent_id": "creator",
             "transport": "hub",
             "goal": "Review an existing delivery",
-            "acceptance_criteria": [],
+            "acceptance_criteria": ["Keep the video visually dynamic"],
         },
     ).json()
     created = client.post(
