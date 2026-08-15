@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 from pydantic import ValidationError
 
-from potato_gateway.adapters import HubClient, HubUnavailableError
+from potato_gateway.adapters import HubClient, HubConflictError, HubUnavailableError
 from potato_gateway.models import (
     CalibrationEvidenceFile,
     CalibrationEvidenceFrame,
@@ -79,6 +79,8 @@ class CalibrationReviewService:
                     hub_review_job_id=str(result["calibration_review_job"]["review_job_id"]),
                 )
             return self._response(record), created
+        except HubConflictError as exc:
+            raise CalibrationReviewConflictError(str(exc)) from None
         except (CalibrationSessionNotFoundError, CalibrationExecutionNotFoundError, CalibrationReviewNotFoundError, CalibrationReviewConflictError):
             raise
         except (CalibrationReviewPersistenceError, HubUnavailableError, KeyError, TypeError, ValueError, ValidationError):
@@ -132,6 +134,8 @@ class CalibrationReviewService:
                     ),
                 )
             return self._response(record), created
+        except HubConflictError as exc:
+            raise CalibrationReviewConflictError(str(exc)) from None
         except (
             CalibrationSessionNotFoundError,
             CalibrationSubmissionNotFoundError,

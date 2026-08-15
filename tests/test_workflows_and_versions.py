@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import pytest
 from fastapi.testclient import TestClient
 
-from potato_gateway.adapters import HubClient, HubUnavailableError, sanitize_hub_payload
+from potato_gateway.adapters import HubClient, HubConflictError, HubUnavailableError, sanitize_hub_payload
 from potato_gateway.adapters.hub_client import HubStreamResponse
 from potato_gateway.config import Settings
 from potato_gateway.main import create_app
@@ -77,6 +77,61 @@ def gateway(tmp_path: Path) -> tuple[TestClient, Path]:
 
 def headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {TOKEN}"}
+
+
+def test_calibration_page_handles_non_json_http_errors(
+    gateway: tuple[TestClient, Path],
+) -> None:
+    client, _ = gateway
+
+    page = client.get("/calibrations")
+
+    assert page.status_code == 200
+    assert "const raw=await r.text()" in page.text
+    assert "服务暂时不可用（HTTP ${r.status}）" in page.text
+
+
+def test_submission_review_maps_hub_conflict_to_json_409(
+    gateway: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, hermes_home = gateway
+    session = client.post(
+        "/api/calibrations",
+        headers=headers(),
+        json={
+            "client_request_id": "review-conflict-session",
+            "agent_id": "creator",
+            "transport": "hub",
+            "goal": "Review a recovered delivery",
+            "acceptance_criteria": [],
+        },
+    ).json()
+    with sqlite3.connect(hermes_home / "gateway" / "gateway.db") as connection:
+        now = "2026-08-16T00:00:00+00:00"
+        connection.execute(
+            """
+            INSERT INTO calibration_submissions(
+                submission_id, client_request_id, session_id, source_type,
+                execution_id, primary_video_asset_id, support_assets_json,
+                source_id, parent_submission_id, status, created_at, updated_at
+            ) VALUES ('sub-conflict', 'sub-conflict-key', ?, 'existing_assets',
+                '', 41, '[]', 'source-1', '', 'ready', ?, ?)
+            """,
+            (session["session_id"], now, now),
+        )
+
+    def reject_review(self, method, path, payload=None, *, headers=None, sanitize=True):
+        raise HubConflictError("source delivery cannot be reviewed")
+
+    monkeypatch.setattr(HubClient, "request", reject_review)
+    response = client.post(
+        f"/api/calibrations/{session['session_id']}/submissions/sub-conflict/reviews",
+        headers=headers(),
+        json={"client_request_id": "review-conflict"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "source delivery cannot be reviewed"
 
 
 def test_hub_calibration_turn_records_real_async_response(

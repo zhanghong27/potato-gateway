@@ -8,3 +8,4 @@ runtime/*.db
 runtime/*.db-shm
 runtime/*.db-wal
 runtime/*.log
+workflow.db
