@@ -13,6 +13,7 @@ from potato_gateway.models import (
     PromptVersionListResponse,
     PromptVersionDetail,
     PromptVersionSummary,
+    SubmitCalibrationAdvisoryRequest,
 )
 from potato_gateway.repositories import (
     CalibrationReviewPersistenceError,
@@ -89,6 +90,40 @@ class PromptVersionService:
                 **self._summary(record).model_dump(), content=record.content
             )
         except PromptVersionNotFoundError:
+            raise
+        except (PromptVersionPersistenceError, HermesProfileSourceError, OSError):
+            raise PromptVersionServiceUnavailableError from None
+
+    def active_version(self, agent_id: str) -> PromptVersionSummary:
+        try:
+            return self._summary(self._ensure_snapshot(agent_id))
+        except (PromptVersionPersistenceError, HermesProfileSourceError, OSError):
+            raise PromptVersionServiceUnavailableError from None
+
+    def create_advised_candidate(
+        self,
+        *,
+        agent_id: str,
+        session_id: str,
+        advisory_id: str,
+        analysis: SubmitCalibrationAdvisoryRequest,
+    ) -> tuple[PromptVersionSummary, bool]:
+        try:
+            active = self._ensure_snapshot(agent_id)
+            addendum = self._build_advised_addendum(advisory_id, analysis)
+            content = self._with_managed_addendum(active.content, addendum)
+            record, created = self.repository.create_candidate(
+                client_request_id=f"advisor.{advisory_id}",
+                agent_id=agent_id,
+                content=content,
+                base_content_sha256=active.content_sha256,
+                change_summary=(
+                    f"ChatGPT 校准建议：{analysis.executive_summary[:180]}"
+                ),
+                calibration_session_id=session_id,
+            )
+            return self._summary(record), created
+        except (PromptVersionConflictError, PromptVersionNotFoundError):
             raise
         except (PromptVersionPersistenceError, HermesProfileSourceError, OSError):
             raise PromptVersionServiceUnavailableError from None
@@ -355,6 +390,50 @@ class PromptVersionService:
             f"{len(quality)} 条质量目标、{len(feedback)} 条用户反馈"
         )
         return "\n".join(lines), summary
+
+    @staticmethod
+    def _build_advised_addendum(
+        advisory_id: str, analysis: SubmitCalibrationAdvisoryRequest
+    ) -> str:
+        def clean(values: list[str], limit: int) -> list[str]:
+            result: list[str] = []
+            seen: set[str] = set()
+            for value in values:
+                item = re.sub(r"\s+", " ", value).strip(" -")[:2400]
+                key = item.casefold()
+                if item and key not in seen:
+                    result.append(item)
+                    seen.add(key)
+                if len(result) >= limit:
+                    break
+            return result
+
+        prompt_patch = clean(analysis.prompt_patch, 24)
+        acceptance = clean(analysis.acceptance_criteria, 16)
+        lines = [
+            MANAGED_ADDENDUM_START,
+            "# ChatGPT calibration patch",
+            "",
+            f"Source advisory: {advisory_id}",
+            "This patch is ChatGPT's distilled recommendation from the current video, delivery package, user feedback, critic report, and visual evidence. It replaces older calibration addenda instead of accumulating their raw history.",
+            "",
+            "## Current user outcome",
+            f"- {re.sub(r'\s+', ' ', analysis.user_intent).strip()[:4000]}",
+            "",
+            "## Required behavior",
+            *[f"- {item}" for item in prompt_patch],
+            "",
+            "## Retest acceptance",
+            *[f"- {item}" for item in acceptance],
+            "",
+            "## Execution discipline",
+            "- Produce a playable deliverable before optional polish.",
+            "- Use at most one QA pass and one corrective full render unless the user explicitly approves more.",
+            "- Treat mechanical metrics as evidence, not goals to game with meaningless motion or noise.",
+            "- Report unresolved quality limitations honestly and return the real artifact manifest before the execution deadline.",
+            MANAGED_ADDENDUM_END,
+        ]
+        return "\n".join(lines)
 
     @staticmethod
     def _with_managed_addendum(content: str, addendum: str) -> str:

@@ -733,6 +733,216 @@ def test_generated_addendum_keeps_style_metrics_out_of_blocking_rules() -> None:
     assert "2 条质量目标" in summary
 
 
+def test_chatgpt_advisory_builds_candidate_from_distilled_patch(
+    gateway: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, hermes_home = gateway
+
+    def fake_request(self, method, path, payload=None, *, headers=None, sanitize=True):
+        if method == "GET" and path == "/api/assets/41/calibration-preview":
+            return {
+                "preview": {
+                    "asset": {
+                        "id": 41,
+                        "asset_type": "video",
+                        "title": "candidate.mp4",
+                        "mime_type": "video/mp4",
+                        "available": True,
+                        "suggested_role": "primary_video",
+                    },
+                    "text_preview": "",
+                    "truncated": False,
+                }
+            }
+        raise AssertionError((method, path, payload))
+
+    monkeypatch.setattr(HubClient, "request", fake_request)
+    session = client.post(
+        "/api/calibrations",
+        headers=headers(),
+        json={
+            "client_request_id": "advisor-session",
+            "agent_id": "creator",
+            "transport": "hub",
+            "goal": "Make the video feel human and relevant",
+            "acceptance_criteria": ["Use concrete human stories"],
+        },
+    ).json()
+    session_id = session["session_id"]
+    client.post(
+        f"/api/calibrations/{session_id}/turns",
+        headers=headers(),
+        json={
+            "client_turn_id": "advisor-feedback",
+            "actor": "user",
+            "kind": "critique",
+            "content": "The video feels synthetic and emotionally distant.",
+        },
+    )
+    database_path = hermes_home / "gateway" / "gateway.db"
+    now = "2026-08-15T10:00:00+00:00"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO calibration_submissions(
+                submission_id, client_request_id, session_id, source_type,
+                execution_id, primary_video_asset_id, support_assets_json,
+                source_id, parent_submission_id, status, created_at, updated_at
+            ) VALUES ('sub-advisor', 'sub-advisor-request', ?, 'existing_assets',
+                      '', 41, '[]', 'workflow:test', '', 'completed', ?, ?)
+            """,
+            (session_id, now, now),
+        )
+        connection.execute(
+            """
+            INSERT INTO calibration_reviews(
+                review_id, client_request_id, session_id, execution_id,
+                source_asset_id, hub_review_job_id, status, report_json,
+                review_package_json, evidence_asset_ids_json,
+                contact_sheet_asset_ids_json, error, created_at, updated_at,
+                completed_at, submission_id
+            ) VALUES ('calrev-advisor', 'calrev-advisor-request', ?, '', 41, '',
+                      'completed', ?, ?, '[101]', '[102]', '', ?, ?, ?, 'sub-advisor')
+            """,
+            (
+                session_id,
+                '{"summary":"Visually polished but emotionally distant","verdict":"revise","total_score":76,"hard_errors":[],"style_findings":[],"shot_assessments":[],"revision_requirements":[]}',
+                '{"evidence":[{"asset_id":101,"shot_index":1,"position":"middle","timestamp_seconds":4.2}],"transcript_status":"available","mechanical_metrics":{"shot_count":5}}',
+                now,
+                now,
+                now,
+            ),
+        )
+        connection.commit()
+
+    created = client.post(
+        f"/api/calibrations/{session_id}/advisories",
+        headers=headers(),
+        json={
+            "client_request_id": "advisor-request-1",
+            "submission_id": "sub-advisor",
+            "review_id": "calrev-advisor",
+        },
+    )
+    assert created.status_code == 201
+    advisory_id = created.json()["advisory_id"]
+    assert created.json()["status"] == "pending"
+
+    pending = client.get(
+        "/api/calibration-advisories?status=pending", headers=headers()
+    ).json()
+    assert [item["advisory_id"] for item in pending["advisories"]] == [advisory_id]
+    bundle = client.get(
+        f"/api/calibration-advisories/{advisory_id}/bundle", headers=headers()
+    )
+    assert bundle.status_code == 200
+    assert bundle.json()["submission"]["primary_video"]["asset_id"] == 41
+    assert bundle.json()["critic_review"]["report"]["total_score"] == 76
+    assert bundle.json()["evidence"]["openaiFileResponse"]
+    assert bundle.json()["user_feedback"] == [
+        "The video feels synthetic and emotionally distant."
+    ]
+    other_session = client.post(
+        "/api/calibrations",
+        headers=headers(),
+        json={
+            "client_request_id": "advisor-other-session",
+            "agent_id": "creator",
+            "transport": "hub",
+            "goal": "Unrelated calibration",
+            "acceptance_criteria": [],
+        },
+    ).json()
+    cross_session = client.post(
+        f"/api/calibrations/{other_session['session_id']}/advisories",
+        headers=headers(),
+        json={
+            "client_request_id": "advisor-cross-session",
+            "submission_id": "sub-advisor",
+            "review_id": "calrev-advisor",
+        },
+    )
+    assert cross_session.status_code == 404
+
+    analysis = {
+        "executive_summary": "Replace abstract AI visuals with one relatable story.",
+        "user_intent": "Make viewers recognize their own work in the first three seconds.",
+        "strengths": ["The basic production pipeline is now playable."],
+        "findings": [
+            {
+                "category": "audience_relevance",
+                "severity": "high",
+                "diagnosis": "The opening explains a system instead of a human problem.",
+                "root_cause": "The script starts from architecture rather than audience stakes.",
+                "why_it_matters": "Viewers have no reason to keep watching.",
+                "evidence_asset_ids": [101],
+                "time_ranges": ["00:00-00:04"],
+            }
+        ],
+        "priority_actions": [
+            {
+                "priority": 1,
+                "action": "Open on a concrete creator failure and its consequence.",
+                "rationale": "A recognizable conflict creates immediate relevance.",
+                "evidence_asset_ids": [101],
+            }
+        ],
+        "stale_rules_to_drop": ["Do not preserve the old 26-second scene recipe."],
+        "prompt_patch": [
+            "Begin with a concrete person, situation, and consequence before explaining the system.",
+            "Use real sourced images or cases when the topic depends on audience empathy.",
+        ],
+        "retest_instruction": "Create a 45-60 second video around one concrete creator story.",
+        "acceptance_criteria": [
+            "The first three seconds identify a person, problem, and stake."
+        ],
+        "limitations": ["Direct motion quality still requires watching the rendered video."],
+    }
+    duplicate = client.post(
+        f"/api/calibrations/{session_id}/advisories",
+        headers=headers(),
+        json={
+            "client_request_id": "advisor-request-invalid",
+            "submission_id": "sub-advisor",
+            "review_id": "calrev-advisor",
+        },
+    )
+    assert duplicate.status_code == 200
+    assert duplicate.json()["advisory_id"] == advisory_id
+    invalid_analysis = {
+        **analysis,
+        "findings": [
+            {**analysis["findings"][0], "evidence_asset_ids": [999999]}
+        ],
+    }
+    invalid = client.post(
+        f"/api/calibration-advisories/{advisory_id}/complete",
+        headers=headers(),
+        json=invalid_analysis,
+    )
+    assert invalid.status_code == 409
+
+    completed = client.post(
+        f"/api/calibration-advisories/{advisory_id}/complete",
+        headers=headers(),
+        json=analysis,
+    )
+    assert completed.status_code == 200
+    result = completed.json()
+    assert result["status"] == "completed"
+    assert result["analysis"]["executive_summary"] == analysis["executive_summary"]
+    assert result["prompt_version_id"]
+
+    detail = client.get(
+        f"/api/admin/agents/creator/prompt-versions/{result['prompt_version_id']}",
+        headers=headers(),
+    ).json()
+    assert "# ChatGPT calibration patch" in detail["content"]
+    assert analysis["prompt_patch"][0] in detail["content"]
+    assert "Visually polished but emotionally distant" not in detail["content"]
+    assert "Do not preserve the old 26-second scene recipe" not in detail["content"]
+
+
 def test_creator_prompt_activation_is_blocked_by_critic_hard_error(
     gateway: tuple[TestClient, Path],
 ) -> None:

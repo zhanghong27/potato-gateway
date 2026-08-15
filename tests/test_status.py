@@ -71,17 +71,19 @@ def test_calibration_console_exposes_session_lifecycle_controls(
     assert "Prompt 改进" in response.text
     assert "重新获取播放链接" in response.text
     assert "候选版本产物" in response.text
-    assert "generateCandidate()" in response.text
+    assert "createAdvisory()" in response.text
+    assert "copyCommanderInstruction(" in response.text
+    assert "交给 ChatGPT 深度分析" in response.text
+    assert "现在没有本地模型在后台运行" in response.text
     assert "testCandidate(" in response.text
     assert "activateCandidate(" in response.text
     assert "额外复测要求" in response.text
     assert "你无需填写" in response.text
-    assert "Gateway 会把校准目标" in response.text
+    assert "Gateway 只保存结果" in response.text
     assert "清蒸土豆在时限内没有返回最终交付清单" in response.text
     assert "系统已停止渲染进程" in response.text
-    assert "Prompt 草案已生成" in response.text
-    assert "这一步是即时编译，没有后台任务" in response.text
-    assert "candidateGenerationBusy" in response.text
+    assert "ChatGPT 综合判断" in response.text
+    assert "等待土豆总指挥分析" in response.text
     assert "goToCandidateTest(" in response.text
     assert "Date.parse(b.created_at)-Date.parse(a.created_at)" in response.text
     assert "查看完整 Prompt 草案" in response.text
@@ -97,7 +99,7 @@ def test_versioned_action_schema_is_public_and_not_cached(client: TestClient) ->
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert (
         response.headers["x-potato-schema-build"]
-        == "optional-candidate-test-3.1-20260809"
+        == "chatgpt-advisory-3.1-20260815"
     )
     assert response.text.startswith("openapi: 3.1.0")
     assert "version: 0.2.7" in response.text

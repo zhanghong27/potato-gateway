@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-MIGRATION_VERSION = 5
+MIGRATION_VERSION = 6
 BUSY_TIMEOUT_MS = 5_000
 LOGGER = logging.getLogger("potato_gateway.database")
 APP_DATABASE_LOCK = threading.Lock()
@@ -82,6 +82,12 @@ class Database:
                         connection.execute(
                             "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
                             (5, self.utc_now()),
+                        )
+                    if 6 not in applied:
+                        self._apply_v6(connection)
+                        connection.execute(
+                            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                            (6, self.utc_now()),
                         )
                     connection.commit()
                     connection.execute("PRAGMA foreign_keys = ON")
@@ -361,6 +367,43 @@ class Database:
         )
         connection.execute(
             "CREATE INDEX idx_calibration_executions_prompt_version ON calibration_executions(prompt_version_id, created_at DESC)"
+        )
+
+    def _apply_v6(self, connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            CREATE TABLE calibration_advisories (
+                advisory_id TEXT PRIMARY KEY,
+                client_request_id TEXT NOT NULL UNIQUE,
+                session_id TEXT NOT NULL,
+                submission_id TEXT NOT NULL,
+                review_id TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (
+                    status IN ('pending', 'completed', 'canceled')
+                ),
+                analysis_json TEXT NOT NULL DEFAULT '{}',
+                prompt_version_id TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                completed_at TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY (session_id)
+                    REFERENCES calibration_sessions(session_id)
+                    ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX idx_calibration_advisories_session "
+            "ON calibration_advisories(session_id, created_at DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX idx_calibration_advisories_status "
+            "ON calibration_advisories(status, created_at ASC)"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX idx_calibration_advisories_one_pending "
+            "ON calibration_advisories(session_id, submission_id, review_id) "
+            "WHERE status = 'pending'"
         )
 
     def _resolve_database_path(self, path: Path) -> Path:

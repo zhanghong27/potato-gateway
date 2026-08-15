@@ -7,7 +7,7 @@ info:
     Hermes Agent profiles, running visible multi-agent video workflows, and
     managing structured calibration sessions.
   version: 0.2.7
-  x-potato-schema-build: optional-candidate-test-3.1-20260809
+  x-potato-schema-build: chatgpt-advisory-3.1-20260815
 
 servers:
   - url: https://zhanghongmac-mini.tail282e0b.ts.net
@@ -639,14 +639,183 @@ paths:
               schema:
                 $ref: "#/components/schemas/CalibrationEvidence"
 
+  /api/calibrations/{session_id}/advisories:
+    post:
+      operationId: createCalibrationAdvisory
+      summary: Create a ChatGPT-led calibration analysis task
+      description: >
+        Creates one pending analysis task bound to a completed Submission and
+        critic review. This does not run a local model or generate a Prompt.
+        After creating it, use getCalibrationAdvisoryBundle to inspect the
+        bound evidence and submitCalibrationAdvisory to write back ChatGPT's
+        independent analysis.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCalibrationAdvisoryRequest"
+      responses:
+        "201":
+          description: Analysis task created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationAdvisory"
+        "200":
+          description: Existing idempotent task returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationAdvisory"
+        "409":
+          description: Submission and review are not eligible or do not match
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/calibration-advisories:
+    get:
+      operationId: listCalibrationAdvisories
+      summary: List ChatGPT calibration analysis tasks
+      description: >
+        Use status pending to discover analysis tasks created by the
+        calibration page. Process the newest pending task unless the user
+        identifies another advisory.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, completed, canceled]
+        - name: session_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Matching calibration analysis tasks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationAdvisoryList"
+
+  /api/calibration-advisories/{advisory_id}:
+    get:
+      operationId: getCalibrationAdvisory
+      summary: Get ChatGPT calibration analysis status and result
+      parameters:
+        - name: advisory_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Analysis task and result when completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationAdvisory"
+
+  /api/calibration-advisories/{advisory_id}/bundle:
+    get:
+      operationId: getCalibrationAdvisoryBundle
+      summary: Get the complete evidence bundle for ChatGPT analysis
+      description: >
+        Returns the current Submission, delivery previews, the user's own
+        feedback, the critic report, frame descriptions, contact sheets, and
+        active Prompt fingerprint. Inspect the contact sheets in
+        openaiFileResponse when visual context is available. Treat the critic
+        report as one source of evidence, not as the final judgment.
+      parameters:
+        - name: advisory_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Bound calibration evidence package
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationAdvisoryBundle"
+
+  /api/calibration-advisories/{advisory_id}/complete:
+    post:
+      operationId: submitCalibrationAdvisory
+      summary: Submit ChatGPT's independent analysis and create a draft Prompt
+      description: >
+        Before calling, independently reconcile the user's subjective intent,
+        the current video and delivery package, critic findings, and visual
+        evidence. Do not merely repeat or concatenate existing feedback. Find
+        likely root causes, identify stale or contradictory old rules, rank a
+        small number of concrete changes, write a precise Prompt patch, and
+        define an isolated retest. Cite only Asset IDs present in this task's
+        bundle. The Gateway validates and stores this analysis, then creates a
+        draft candidate from only the distilled patch; it never activates it.
+      parameters:
+        - name: advisory_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitCalibrationAdvisoryRequest"
+      responses:
+        "200":
+          description: Analysis saved and draft candidate created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalibrationAdvisory"
+        "409":
+          description: Analysis is invalid, already completed differently, or cites unbound evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/calibrations/{session_id}/prompt-candidates:
     post:
       operationId: generatePromptCandidate
-      summary: Generate a draft Prompt candidate from calibration evidence
+      summary: Legacy deterministic fallback for a draft Prompt candidate
       description: >
-        Combines the session goal, acceptance criteria, user feedback, and
-        completed critic reports into a managed addendum on the current active
-        Prompt. The full Prompt remains private and the draft is not activated.
+        Compatibility fallback that compiles stored rules without ChatGPT
+        reasoning. Prefer the calibration advisory flow for video calibration.
+        The full Prompt remains private and the draft is not activated.
       parameters:
         - name: session_id
           in: path
@@ -1663,7 +1832,7 @@ components:
           minimum: 1
         role:
           type: string
-          enum: [storyboard, sync_timeline, script, evidence_manifest, subtitle, audio, cover, other]
+          enum: [primary_video, storyboard, sync_timeline, script, evidence_manifest, subtitle, audio, cover, other]
 
     CreateCalibrationSubmissionRequest:
       type: object
@@ -1884,6 +2053,242 @@ components:
           items:
             type: string
             format: uri
+
+    CreateCalibrationAdvisoryRequest:
+      type: object
+      additionalProperties: false
+      required: [client_request_id, submission_id, review_id]
+      properties:
+        client_request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._-]+$"
+        submission_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        review_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+
+    CalibrationAdvisoryFinding:
+      type: object
+      additionalProperties: false
+      required:
+        - category
+        - severity
+        - diagnosis
+        - root_cause
+        - why_it_matters
+        - evidence_asset_ids
+        - time_ranges
+      properties:
+        category:
+          type: string
+          minLength: 1
+          maxLength: 120
+        severity:
+          type: string
+          enum: [high, medium, low]
+        diagnosis:
+          type: string
+          minLength: 1
+          maxLength: 6000
+        root_cause:
+          type: string
+          minLength: 1
+          maxLength: 6000
+        why_it_matters:
+          type: string
+          minLength: 1
+          maxLength: 6000
+        evidence_asset_ids:
+          type: array
+          maxItems: 20
+          items:
+            type: integer
+        time_ranges:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+
+    CalibrationAdvisoryAction:
+      type: object
+      additionalProperties: false
+      required: [priority, action, rationale, evidence_asset_ids]
+      properties:
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 10
+        action:
+          type: string
+          minLength: 1
+          maxLength: 6000
+        rationale:
+          type: string
+          minLength: 1
+          maxLength: 6000
+        evidence_asset_ids:
+          type: array
+          maxItems: 20
+          items:
+            type: integer
+
+    SubmitCalibrationAdvisoryRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - executive_summary
+        - user_intent
+        - strengths
+        - findings
+        - priority_actions
+        - stale_rules_to_drop
+        - prompt_patch
+        - retest_instruction
+        - acceptance_criteria
+        - limitations
+      properties:
+        executive_summary:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        user_intent:
+          type: string
+          minLength: 1
+          maxLength: 6000
+        strengths:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+        findings:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/CalibrationAdvisoryFinding"
+        priority_actions:
+          type: array
+          minItems: 1
+          maxItems: 15
+          items:
+            $ref: "#/components/schemas/CalibrationAdvisoryAction"
+        stale_rules_to_drop:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+        prompt_patch:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items:
+            type: string
+        retest_instruction:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        acceptance_criteria:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+        limitations:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+
+    CalibrationAdvisory:
+      type: object
+      additionalProperties: false
+      required:
+        - advisory_id
+        - session_id
+        - submission_id
+        - review_id
+        - status
+        - created_at
+        - updated_at
+      properties:
+        advisory_id:
+          type: string
+        session_id:
+          type: string
+        submission_id:
+          type: string
+        review_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, completed, canceled]
+        analysis:
+          $ref: "#/components/schemas/SubmitCalibrationAdvisoryRequest"
+        prompt_version_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    CalibrationAdvisoryList:
+      type: object
+      additionalProperties: false
+      required: [advisories]
+      properties:
+        advisories:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalibrationAdvisory"
+
+    CalibrationAdvisoryBundle:
+      type: object
+      additionalProperties: false
+      required:
+        - advisory
+        - agent_id
+        - goal
+        - acceptance_criteria
+        - user_feedback
+        - submission
+        - critic_review
+        - evidence
+        - active_prompt_content_sha256
+      properties:
+        advisory:
+          $ref: "#/components/schemas/CalibrationAdvisory"
+        agent_id:
+          type: string
+          enum: [researcher, creator, critic]
+        goal:
+          type: string
+        acceptance_criteria:
+          type: array
+          items:
+            type: string
+        user_feedback:
+          type: array
+          items:
+            type: string
+        submission:
+          $ref: "#/components/schemas/CalibrationSubmission"
+        critic_review:
+          $ref: "#/components/schemas/CalibrationReview"
+        evidence:
+          $ref: "#/components/schemas/CalibrationEvidence"
+        active_prompt_content_sha256:
+          type: string
 
     CreatePromptCandidateRequest:
       type: object

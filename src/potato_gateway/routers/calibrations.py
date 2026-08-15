@@ -33,6 +33,10 @@ from potato_gateway.models import (
     CalibrationSubmissionListResponse,
     CalibrationSubmissionResponse,
     CalibrationTurnResponse,
+    CalibrationAdvisoryBundle,
+    CalibrationAdvisoryListResponse,
+    CalibrationAdvisoryResponse,
+    CreateCalibrationAdvisoryRequest,
     CreateCalibrationSessionRequest,
     CreateCalibrationReviewRequest,
     CreateCalibrationSubmissionRequest,
@@ -40,6 +44,7 @@ from potato_gateway.models import (
     ErrorResponse,
     ExecuteCalibrationTurnRequest,
     RecordCalibrationTurnRequest,
+    SubmitCalibrationAdvisoryRequest,
     TestPromptCandidateRequest,
 )
 from potato_gateway.repositories import (
@@ -57,6 +62,9 @@ from potato_gateway.repositories import (
     CalibrationSubmissionConflictError,
     CalibrationSubmissionNotFoundError,
     CalibrationSubmissionRepository,
+    CalibrationAdvisoryConflictError,
+    CalibrationAdvisoryNotFoundError,
+    CalibrationAdvisoryRepository,
     PromptVersionConflictError,
     PromptVersionNotFoundError,
     PromptVersionRepository,
@@ -71,6 +79,8 @@ from potato_gateway.services import (
     CalibrationReviewServiceUnavailableError,
     CalibrationSubmissionService,
     CalibrationSubmissionServiceUnavailableError,
+    CalibrationAdvisoryService,
+    CalibrationAdvisoryServiceUnavailableError,
     PromptVersionService,
     PromptVersionServiceUnavailableError,
     build_agent_profile_service,
@@ -238,6 +248,32 @@ def get_calibration_submission_service(
         raise HTTPException(
             status_code=503,
             detail="Calibration submission data is temporarily unavailable",
+        ) from None
+
+
+def get_calibration_advisory_service(
+    request: Request,
+) -> CalibrationAdvisoryService:
+    settings = request.app.state.settings
+    try:
+        database = get_app_database(
+            request.app,
+            path=settings.database_path,
+            hermes_home=settings.hermes_home,
+        )
+        return CalibrationAdvisoryService(
+            CalibrationAdvisoryRepository(database),
+            CalibrationSessionRepository(database),
+            CalibrationSubmissionRepository(database),
+            CalibrationReviewRepository(database),
+            get_calibration_submission_service(request),
+            get_calibration_review_service(request),
+            get_calibration_prompt_service(request),
+        )
+    except DatabaseUnavailableError:
+        raise HTTPException(
+            status_code=503,
+            detail="ChatGPT calibration analysis is temporarily unavailable",
         ) from None
 
 
@@ -998,6 +1034,159 @@ def get_signed_calibration_asset(
         not_found_detail="Evidence asset not found",
         unavailable_detail="Evidence asset is temporarily unavailable",
     )
+
+
+@router.post(
+    "/api/calibrations/{session_id}/advisories",
+    response_model=CalibrationAdvisoryResponse,
+    status_code=status.HTTP_201_CREATED,
+    operation_id="createCalibrationAdvisory",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+    responses={
+        200: {"model": CalibrationAdvisoryResponse, "description": "Idempotent replay"},
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+def create_calibration_advisory(
+    session_id: Annotated[str, Path(min_length=1, max_length=128)],
+    payload: CreateCalibrationAdvisoryRequest,
+    response: Response,
+    service: Annotated[
+        CalibrationAdvisoryService, Depends(get_calibration_advisory_service)
+    ],
+) -> CalibrationAdvisoryResponse:
+    try:
+        advisory, created = service.create(session_id, payload)
+    except (
+        CalibrationSessionNotFoundError,
+        CalibrationSubmissionNotFoundError,
+        CalibrationReviewNotFoundError,
+        CalibrationAdvisoryNotFoundError,
+    ):
+        raise HTTPException(status_code=404, detail="Calibration source not found") from None
+    except CalibrationAdvisoryConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except CalibrationAdvisoryServiceUnavailableError:
+        raise HTTPException(
+            status_code=503, detail="ChatGPT calibration analysis is unavailable"
+        ) from None
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    return advisory
+
+
+@router.get(
+    "/api/calibration-advisories",
+    response_model=CalibrationAdvisoryListResponse,
+    operation_id="listCalibrationAdvisories",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+)
+def list_calibration_advisories(
+    service: Annotated[
+        CalibrationAdvisoryService, Depends(get_calibration_advisory_service)
+    ],
+    status_filter: Annotated[
+        str | None,
+        Query(alias="status", pattern=r"^(pending|completed|canceled)$"),
+    ] = None,
+    session_id: Annotated[str | None, Query(max_length=128)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> CalibrationAdvisoryListResponse:
+    try:
+        return service.list(
+            status=status_filter, session_id=session_id, limit=limit
+        )
+    except CalibrationAdvisoryServiceUnavailableError:
+        raise HTTPException(
+            status_code=503, detail="ChatGPT calibration analysis is unavailable"
+        ) from None
+
+
+@router.get(
+    "/api/calibration-advisories/{advisory_id}",
+    response_model=CalibrationAdvisoryResponse,
+    operation_id="getCalibrationAdvisory",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+)
+def get_calibration_advisory(
+    advisory_id: Annotated[str, Path(min_length=1, max_length=128)],
+    service: Annotated[
+        CalibrationAdvisoryService, Depends(get_calibration_advisory_service)
+    ],
+) -> CalibrationAdvisoryResponse:
+    try:
+        return service.get(advisory_id)
+    except CalibrationAdvisoryNotFoundError:
+        raise HTTPException(status_code=404, detail="Calibration advisory not found") from None
+    except CalibrationAdvisoryServiceUnavailableError:
+        raise HTTPException(
+            status_code=503, detail="ChatGPT calibration analysis is unavailable"
+        ) from None
+
+
+@router.get(
+    "/api/calibration-advisories/{advisory_id}/bundle",
+    response_model=CalibrationAdvisoryBundle,
+    operation_id="getCalibrationAdvisoryBundle",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+)
+def get_calibration_advisory_bundle(
+    advisory_id: Annotated[str, Path(min_length=1, max_length=128)],
+    service: Annotated[
+        CalibrationAdvisoryService, Depends(get_calibration_advisory_service)
+    ],
+) -> CalibrationAdvisoryBundle:
+    try:
+        return service.bundle(advisory_id)
+    except (
+        CalibrationAdvisoryNotFoundError,
+        CalibrationSessionNotFoundError,
+        CalibrationSubmissionNotFoundError,
+        CalibrationReviewNotFoundError,
+    ):
+        raise HTTPException(status_code=404, detail="Calibration advisory not found") from None
+    except CalibrationAdvisoryServiceUnavailableError:
+        raise HTTPException(
+            status_code=503, detail="ChatGPT calibration bundle is unavailable"
+        ) from None
+
+
+@router.post(
+    "/api/calibration-advisories/{advisory_id}/complete",
+    response_model=CalibrationAdvisoryResponse,
+    operation_id="submitCalibrationAdvisory",
+    dependencies=[Depends(require_bearer_token)],
+    tags=["calibrations"],
+)
+def complete_calibration_advisory(
+    advisory_id: Annotated[str, Path(min_length=1, max_length=128)],
+    payload: SubmitCalibrationAdvisoryRequest,
+    service: Annotated[
+        CalibrationAdvisoryService, Depends(get_calibration_advisory_service)
+    ],
+) -> CalibrationAdvisoryResponse:
+    try:
+        return service.submit(advisory_id, payload)
+    except (
+        CalibrationAdvisoryNotFoundError,
+        CalibrationSessionNotFoundError,
+        CalibrationSubmissionNotFoundError,
+        CalibrationReviewNotFoundError,
+        PromptVersionNotFoundError,
+    ):
+        raise HTTPException(status_code=404, detail="Calibration advisory not found") from None
+    except (CalibrationAdvisoryConflictError, PromptVersionConflictError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except CalibrationAdvisoryServiceUnavailableError:
+        raise HTTPException(
+            status_code=503, detail="ChatGPT calibration analysis could not be saved"
+        ) from None
 
 
 @router.get(

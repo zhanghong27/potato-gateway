@@ -48,7 +48,7 @@ def test_custom_gpt_action_schema_uses_explicit_objects_and_parameters() -> None
     assert document["info"]["version"] == "0.2.7"
     assert (
         document["info"]["x-potato-schema-build"]
-        == "optional-candidate-test-3.1-20260809"
+        == "chatgpt-advisory-3.1-20260815"
     )
 
     operation_ids: list[str] = []
@@ -67,8 +67,15 @@ def test_custom_gpt_action_schema_uses_explicit_objects_and_parameters() -> None
             }
             assert path_names == placeholders, (route, method, path_names, placeholders)
 
-    assert len(operation_ids) == 30
+    assert len(operation_ids) == 35
     assert len(operation_ids) == len(set(operation_ids))
+    assert {
+        "createCalibrationAdvisory",
+        "listCalibrationAdvisories",
+        "getCalibrationAdvisory",
+        "getCalibrationAdvisoryBundle",
+        "submitCalibrationAdvisory",
+    }.issubset(operation_ids)
 
     for path, value in _walk(document):
         assert value is not None, f"null YAML node at {path}"

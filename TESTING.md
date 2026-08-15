@@ -4,10 +4,10 @@
 
 1. 打开“土豆总指挥”的 Actions 配置。
 2. 删除旧 Action 配置并新建一个 Action，选择从 URL 导入：
-   `https://zhanghongmac-mini.tail282e0b.ts.net/potato-actions-v0.2.5.yaml`
+   `https://zhanghongmac-mini.tail282e0b.ts.net/potato-actions-v0.2.7.yaml`
 3. Authentication 选择 API Key、Bearer，填入现有 `POTATO_GATEWAY_TOKEN`。
-4. 确认标题为 `Potato Gateway Actions Safe`、版本为 `0.2.5`。
-5. 保存后应识别 28 个 Actions，且不应出现 warning 或 skipped function。
+4. 确认标题为 `Potato Gateway Actions Safe`、版本为 `0.2.7`，build 为 `chatgpt-advisory-3.1-20260815`。
+5. 保存后应识别 35 个 Actions，且不应出现 warning 或 skipped function。
 
 ## 历史交付包校准
 
@@ -33,6 +33,32 @@
 
 证据链接绑定 Session，15 分钟过期。跨 Session、篡改签名或过期链接应返回 `403` 或 `404`。
 
+## ChatGPT 主导的 Prompt 校准
+
+先把下面规则加入“土豆总指挥”的 Instructions：
+
+```text
+当用户要求处理校准分析待办时：
+1. 调用 listCalibrationAdvisories(status=pending, limit=20)，选择用户指定的待办；未指定时选择最新一条。
+2. 调用 getCalibrationAdvisoryBundle。必须综合用户反馈、当前 Submission 的视频与交付摘要、酸辣土豆丝报告、逐帧描述、机械指标和 openaiFileResponse 中的 contact sheet。酸辣土豆丝只是证据来源，不是最终结论。
+3. 先独立判断用户真正不满意的结果、值得保留的部分和根因，再按影响排序下一步操作。不要复述或拼接历史评语。
+4. prompt_patch 只写少量、可执行、可验证且不互相冲突的长期行为规则；不要贴完整 Prompt，不要把评审原文或单个视频的偶然细节塞进规则。
+5. retest_instruction 必须能独立执行，acceptance_criteria 必须可检查。证据只能引用 bundle 中真实存在的 Asset ID。
+6. 调用 submitCalibrationAdvisory 写回结构化分析。它只创建 draft，不能自行激活。
+```
+
+验收步骤：
+
+1. 在校准页保存你的最新主观反馈，等待酸辣土豆丝完成当前视频评审。
+2. 打开 `Prompt 改进`，点击“交给 ChatGPT 深度分析”。页面应显示一个 `cala_...` 待办，并明确说明没有本地模型在后台运行。
+3. 在“土豆总指挥”发送：“处理最新的 ChatGPT 校准分析待办。”
+4. GPT 应依次调用 `listCalibrationAdvisories`、`getCalibrationAdvisoryBundle` 和 `submitCalibrationAdvisory`。如果图片文件能进入视觉上下文，应查看 contact sheet；否则必须使用逐帧文字、时间戳和 critic 报告，并在 limitations 中说明限制。
+5. 校准页应在后台同步后显示“ChatGPT 深度校准已完成”，包括独立诊断、根因、优化优先级、证据、精炼 Prompt patch 和隔离复测要求。
+6. 点击“使用 ChatGPT 草案复测”。正式 Prompt 在你人工激活前不得改变。
+7. 新候选的 managed addendum 只能包含当前 ChatGPT 提炼规则，不得再次累积用户评语、critic 原文或旧校准历史。
+
+同一 Submission 和 review 同时最多只有一个 pending 待办；重复点击应返回原待办。跨 Session 来源或引用 bundle 外 Asset ID 必须拒绝。
+
 不应再出现：
 
 - `object schema missing properties`
@@ -50,7 +76,7 @@ cd /Users/zhanghong/.hermes/potato-gateway
 .venv/bin/pytest -q
 ```
 
-预期：`85 passed`。唯一 warning 是 TestClient 的 Starlette 弃用提醒。
+预期：`91 passed`。唯一 warning 是 TestClient 的 Starlette 弃用提醒。
 
 Hub：
 

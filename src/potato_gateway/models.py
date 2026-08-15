@@ -454,6 +454,75 @@ class CalibrationEvidenceResponse(StrictModel):
     openaiFileResponse: list[str]
 
 
+class CreateCalibrationAdvisoryRequest(StrictModel):
+    client_request_id: str = Field(
+        min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$"
+    )
+    submission_id: str = Field(min_length=1, max_length=128)
+    review_id: str = Field(min_length=1, max_length=128)
+
+
+class CalibrationAdvisoryFinding(StrictModel):
+    category: str = Field(min_length=1, max_length=120)
+    severity: Literal["high", "medium", "low"]
+    diagnosis: str = Field(min_length=1, max_length=6000)
+    root_cause: str = Field(min_length=1, max_length=6000)
+    why_it_matters: str = Field(min_length=1, max_length=6000)
+    evidence_asset_ids: list[int] = Field(default_factory=list, max_length=20)
+    time_ranges: list[str] = Field(default_factory=list, max_length=20)
+
+
+class CalibrationAdvisoryAction(StrictModel):
+    priority: int = Field(ge=1, le=10)
+    action: str = Field(min_length=1, max_length=6000)
+    rationale: str = Field(min_length=1, max_length=6000)
+    evidence_asset_ids: list[int] = Field(default_factory=list, max_length=20)
+
+
+class SubmitCalibrationAdvisoryRequest(StrictModel):
+    executive_summary: str = Field(min_length=1, max_length=12_000)
+    user_intent: str = Field(min_length=1, max_length=6000)
+    strengths: list[str] = Field(default_factory=list, max_length=20)
+    findings: list[CalibrationAdvisoryFinding] = Field(min_length=1, max_length=20)
+    priority_actions: list[CalibrationAdvisoryAction] = Field(
+        min_length=1, max_length=15
+    )
+    stale_rules_to_drop: list[str] = Field(default_factory=list, max_length=30)
+    prompt_patch: list[str] = Field(min_length=1, max_length=30)
+    retest_instruction: str = Field(min_length=1, max_length=12_000)
+    acceptance_criteria: list[str] = Field(min_length=1, max_length=20)
+    limitations: list[str] = Field(default_factory=list, max_length=20)
+
+
+class CalibrationAdvisoryResponse(StrictModel):
+    advisory_id: str
+    session_id: str
+    submission_id: str
+    review_id: str
+    status: Literal["pending", "completed", "canceled"]
+    analysis: SubmitCalibrationAdvisoryRequest | None = None
+    prompt_version_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+
+
+class CalibrationAdvisoryListResponse(StrictModel):
+    advisories: list[CalibrationAdvisoryResponse]
+
+
+class CalibrationAdvisoryBundle(StrictModel):
+    advisory: CalibrationAdvisoryResponse
+    agent_id: CalibratableAgentIdField
+    goal: str
+    acceptance_criteria: list[str]
+    user_feedback: list[str]
+    submission: CalibrationSubmissionResponse
+    critic_review: CalibrationReviewResponse
+    evidence: CalibrationEvidenceResponse
+    active_prompt_content_sha256: str
+
+
 class CreatePromptCandidateRequest(StrictModel):
     client_request_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
     content: str = Field(min_length=1, max_length=200_000)
