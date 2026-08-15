@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -180,6 +180,40 @@ def test_status_describes_live_agent_activity(
     assert activities["critic"]["activity_label"] == "等着审片"
     assert activities["engineer"]["activity_state"] == "error"
     assert activities["engineer"]["activity_label"] == "上次任务异常"
+
+
+def test_status_keeps_stale_active_calibration_visible(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+
+    def fake_request(self, method, path, payload=None, *, headers=None, sanitize=True):
+        if path == "/api/health":
+            return {"ok": True}
+        if path == "/api/agents":
+            return {
+                "heartbeats": [
+                    {
+                        "agent_id": "creator",
+                        "status": "calibrating",
+                        "current_work_item_id": "caljob_1",
+                        "metadata": {"mode": "calibration"},
+                        "updated_at": stale,
+                    }
+                ]
+            }
+        raise AssertionError((method, path))
+
+    monkeypatch.setattr(HubClient, "request", fake_request)
+
+    payload = client.get(
+        "/api/status", headers={"Authorization": f"Bearer {TEST_TOKEN}"}
+    ).json()
+    creator = next(item for item in payload["agents"] if item["id"] == "creator")
+
+    assert creator["status"] == "calibrating"
+    assert creator["activity_state"] == "calibrating"
+    assert creator["activity_label"] == "复测中 · 心跳延迟"
 
 
 def test_status_success_response_does_not_contain_token(client: TestClient) -> None:

@@ -85,20 +85,29 @@ def status(request: Request) -> StatusResponse:
             age = (datetime.now(timezone.utc) - observed.astimezone(timezone.utc)).total_seconds()
         except ValueError:
             return "unknown", "unknown", "状态暂时未知"
-        if age > 120:
-            return "offline", "offline", "Runner 已离线"
         raw = str(heartbeat.get("status") or "online")
         current_id = str(heartbeat.get("current_work_item_id") or "")
         metadata = heartbeat.get("metadata")
         metadata = metadata if isinstance(metadata, dict) else {}
         mode = str(metadata.get("mode") or "")
+        is_review = mode == "calibration_review" or current_id.startswith("calreview_")
+        is_calibration = mode == "calibration" or current_id.startswith("caljob_")
+        is_work = raw in {"busy", "working"} or current_id.startswith("work_")
+        if age > 120:
+            if is_review:
+                return "calibrating", "calibrating", "评审中 · 心跳延迟"
+            if is_calibration:
+                return "calibrating", "calibrating", "复测中 · 心跳延迟"
+            if is_work:
+                return "busy", "working", f"{working_labels[agent_id]} · 心跳延迟"
+            return "offline", "offline", "Runner 已离线"
         if raw == "error":
             return "error", "error", "上次任务异常"
-        if mode == "calibration_review" or current_id.startswith("calreview_"):
+        if is_review:
             return "calibrating", "calibrating", "校准视频评审"
-        if mode == "calibration" or current_id.startswith("caljob_"):
+        if is_calibration:
             return "calibrating", "calibrating", "执行校准复测"
-        if raw in {"busy", "working"} or current_id.startswith("work_"):
+        if is_work:
             return "busy", "working", working_labels[agent_id]
         if raw in {"calibrating", "preparing_review", "reviewing"}:
             return "calibrating", "calibrating", "执行校准任务"
