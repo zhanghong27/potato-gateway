@@ -41,6 +41,10 @@ def test_home_console_links_primary_surfaces(client: TestClient) -> None:
     assert "activity_state" in response.text
     assert "animateAgentStates()" in response.text
     assert "prefers-reduced-motion: no-preference" in response.text
+    assert 'class="scholar-cap"' in response.text
+    assert 'class="digital-visor"' in response.text
+    assert 'class="clapper"' in response.text
+    assert 'class="chili-mark"' in response.text
 
 
 def test_calibration_console_exposes_session_lifecycle_controls(
