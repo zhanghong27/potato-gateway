@@ -59,21 +59,60 @@ def status(request: Request) -> StatusResponse:
     except HubUnavailableError:
         pass
 
-    def observed_status(agent_id: str) -> str:
+    idle_labels = {
+        "researcher": "等着查资料",
+        "creator": "等着做视频",
+        "critic": "等着审片",
+        "engineer": "守着系统",
+    }
+    working_labels = {
+        "researcher": "搜集视频素材",
+        "creator": "生成或修改视频",
+        "critic": "审查视频",
+        "engineer": "处理系统故障",
+    }
+
+    def observed_agent(agent_id: str) -> tuple[str, str, str]:
         heartbeat = heartbeat_by_agent.get(agent_id)
         if not heartbeat:
-            return "offline" if hub_status == "online" else "unknown"
+            if hub_status == "online":
+                return "offline", "offline", "Runner 未连接"
+            return "unknown", "unknown", "状态暂时未知"
         try:
             observed = datetime.fromisoformat(str(heartbeat.get("updated_at") or ""))
             if observed.tzinfo is None:
                 observed = observed.replace(tzinfo=timezone.utc)
             age = (datetime.now(timezone.utc) - observed.astimezone(timezone.utc)).total_seconds()
         except ValueError:
-            return "unknown"
+            return "unknown", "unknown", "状态暂时未知"
         if age > 120:
-            return "offline"
+            return "offline", "offline", "Runner 已离线"
         raw = str(heartbeat.get("status") or "online")
-        return raw if raw in {"online", "busy", "calibrating", "error"} else "online"
+        current_id = str(heartbeat.get("current_work_item_id") or "")
+        metadata = heartbeat.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        mode = str(metadata.get("mode") or "")
+        if raw == "error":
+            return "error", "error", "上次任务异常"
+        if mode == "calibration_review" or current_id.startswith("calreview_"):
+            return "calibrating", "calibrating", "校准视频评审"
+        if mode == "calibration" or current_id.startswith("caljob_"):
+            return "calibrating", "calibrating", "执行校准复测"
+        if raw in {"busy", "working"} or current_id.startswith("work_"):
+            return "busy", "working", working_labels[agent_id]
+        if raw in {"calibrating", "preparing_review", "reviewing"}:
+            return "calibrating", "calibrating", "执行校准任务"
+        return "online", "idle", idle_labels[agent_id]
+
+    def agent_info(agent_id: str, display_name: str) -> AgentInfo:
+        observed_status, activity_state, activity_label = observed_agent(agent_id)
+        return AgentInfo(
+            id=agent_id,
+            display_name=display_name,
+            status=observed_status,
+            activity_state=activity_state,
+            activity_label=activity_label,
+        )
 
     return StatusResponse(
         service=ServiceInfo(
@@ -86,9 +125,9 @@ def status(request: Request) -> StatusResponse:
             message=hub_message,
         ),
         agents=[
-            AgentInfo(id="researcher", display_name="薯博士", status=observed_status("researcher")),
-            AgentInfo(id="creator", display_name="清蒸土豆", status=observed_status("creator")),
-            AgentInfo(id="critic", display_name="酸辣土豆丝", status=observed_status("critic")),
-            AgentInfo(id="engineer", display_name="薯码宝贝", status=observed_status("engineer")),
+            agent_info("researcher", "薯博士"),
+            agent_info("creator", "清蒸土豆"),
+            agent_info("critic", "酸辣土豆丝"),
+            agent_info("engineer", "薯码宝贝"),
         ],
     )

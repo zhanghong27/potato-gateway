@@ -10,6 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 ServiceStatus = Literal["running"]
 IntegrationStatus = Literal["online", "offline", "unknown"]
 AgentStatus = Literal["online", "offline", "busy", "calibrating", "error", "unknown"]
+AgentActivityState = Literal[
+    "idle", "working", "calibrating", "error", "offline", "unknown"
+]
 CalibrationState = Literal[
     "untracked",
     "calibrating",
@@ -73,6 +76,8 @@ class AgentInfo(StrictModel):
     id: str
     display_name: str
     status: AgentStatus
+    activity_state: AgentActivityState
+    activity_label: str
 
 
 class StatusResponse(StrictModel):

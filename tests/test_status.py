@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from potato_gateway.adapters import HubClient
 from potato_gateway.config import Settings
 from potato_gateway.main import create_app
 
@@ -34,6 +37,10 @@ def test_home_console_links_primary_surfaces(client: TestClient) -> None:
     assert 'href="/calibrations"' in response.text
     assert 'href="/docs"' in response.text
     assert 'href="/potato-actions-v0.2.7.yaml"' in response.text
+    assert "土豆状态" in response.text
+    assert "activity_state" in response.text
+    assert "animateAgentStates()" in response.text
+    assert "prefers-reduced-motion: no-preference" in response.text
 
 
 def test_calibration_console_exposes_session_lifecycle_controls(
@@ -131,12 +138,48 @@ def test_status_success_response_has_expected_structure(client: TestClient) -> N
             "message": "Potato Hub is not reachable",
         },
         "agents": [
-            {"id": "researcher", "display_name": "薯博士", "status": "unknown"},
-            {"id": "creator", "display_name": "清蒸土豆", "status": "unknown"},
-            {"id": "critic", "display_name": "酸辣土豆丝", "status": "unknown"},
-            {"id": "engineer", "display_name": "薯码宝贝", "status": "unknown"},
+            {"id": "researcher", "display_name": "薯博士", "status": "unknown", "activity_state": "unknown", "activity_label": "状态暂时未知"},
+            {"id": "creator", "display_name": "清蒸土豆", "status": "unknown", "activity_state": "unknown", "activity_label": "状态暂时未知"},
+            {"id": "critic", "display_name": "酸辣土豆丝", "status": "unknown", "activity_state": "unknown", "activity_label": "状态暂时未知"},
+            {"id": "engineer", "display_name": "薯码宝贝", "status": "unknown", "activity_state": "unknown", "activity_label": "状态暂时未知"},
         ],
     }
+
+
+def test_status_describes_live_agent_activity(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+
+    def fake_request(self, method, path, payload=None, *, headers=None, sanitize=True):
+        if path == "/api/health":
+            return {"ok": True}
+        if path == "/api/agents":
+            return {
+                "heartbeats": [
+                    {"agent_id": "researcher", "status": "busy", "current_work_item_id": "work_1", "metadata": {}, "updated_at": now},
+                    {"agent_id": "creator", "status": "calibrating", "current_work_item_id": "caljob_1", "metadata": {"mode": "calibration"}, "updated_at": now},
+                    {"agent_id": "critic", "status": "online", "current_work_item_id": "", "metadata": {}, "updated_at": now},
+                    {"agent_id": "engineer", "status": "error", "current_work_item_id": "", "metadata": {}, "updated_at": now},
+                ]
+            }
+        raise AssertionError((method, path))
+
+    monkeypatch.setattr(HubClient, "request", fake_request)
+
+    payload = client.get(
+        "/api/status", headers={"Authorization": f"Bearer {TEST_TOKEN}"}
+    ).json()
+    activities = {item["id"]: item for item in payload["agents"]}
+
+    assert activities["researcher"]["activity_state"] == "working"
+    assert activities["researcher"]["activity_label"] == "搜集视频素材"
+    assert activities["creator"]["activity_state"] == "calibrating"
+    assert activities["creator"]["activity_label"] == "执行校准复测"
+    assert activities["critic"]["activity_state"] == "idle"
+    assert activities["critic"]["activity_label"] == "等着审片"
+    assert activities["engineer"]["activity_state"] == "error"
+    assert activities["engineer"]["activity_label"] == "上次任务异常"
 
 
 def test_status_success_response_does_not_contain_token(client: TestClient) -> None:
