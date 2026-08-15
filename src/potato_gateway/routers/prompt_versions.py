@@ -12,6 +12,7 @@ from potato_gateway.models import (
     ErrorResponse,
     GeneratePromptCandidateRequest,
     PromotePromptVersionRequest,
+    PromptVersionDetail,
     PromptVersionListResponse,
     PromptVersionSummary,
 )
@@ -135,6 +136,27 @@ def list_prompt_versions(
         raise HTTPException(status_code=404, detail="Agent not found")
     try:
         return service.list_versions(agent_id, limit)
+    except PromptVersionServiceUnavailableError:
+        raise HTTPException(status_code=503, detail="Prompt version data is unavailable") from None
+
+
+@router.get(
+    "/api/admin/agents/{agent_id}/prompt-versions/{prompt_version_id}",
+    response_model=PromptVersionDetail,
+    dependencies=[Depends(require_bearer_token)],
+    include_in_schema=False,
+)
+def get_prompt_version_detail(
+    agent_id: Annotated[str, Path(json_schema_extra={"enum": AGENT_IDS})],
+    prompt_version_id: Annotated[str, Path(min_length=1, max_length=128)],
+    service: Annotated[PromptVersionService, Depends(get_prompt_version_service)],
+) -> PromptVersionDetail:
+    if agent_id not in AGENT_IDS:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    try:
+        return service.get_version_detail(agent_id, prompt_version_id)
+    except PromptVersionNotFoundError:
+        raise HTTPException(status_code=404, detail="Prompt version not found") from None
     except PromptVersionServiceUnavailableError:
         raise HTTPException(status_code=503, detail="Prompt version data is unavailable") from None
 

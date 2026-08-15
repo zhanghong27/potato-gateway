@@ -11,6 +11,7 @@ from potato_gateway.models import (
     CreatePromptCandidateRequest,
     GeneratePromptCandidateRequest,
     PromptVersionListResponse,
+    PromptVersionDetail,
     PromptVersionSummary,
 )
 from potato_gateway.repositories import (
@@ -74,6 +75,21 @@ class PromptVersionService:
                 agent_id=agent_id,
                 versions=[self._summary(item) for item in self.repository.list(agent_id, limit)],
             )
+        except (PromptVersionPersistenceError, HermesProfileSourceError, OSError):
+            raise PromptVersionServiceUnavailableError from None
+
+    def get_version_detail(
+        self, agent_id: str, prompt_version_id: str
+    ) -> PromptVersionDetail:
+        try:
+            record = self.repository.get(prompt_version_id)
+            if record.agent_id != agent_id:
+                raise PromptVersionNotFoundError(prompt_version_id)
+            return PromptVersionDetail(
+                **self._summary(record).model_dump(), content=record.content
+            )
+        except PromptVersionNotFoundError:
+            raise
         except (PromptVersionPersistenceError, HermesProfileSourceError, OSError):
             raise PromptVersionServiceUnavailableError from None
 

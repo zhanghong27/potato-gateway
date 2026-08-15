@@ -490,5 +490,9 @@ class PromptVersionListResponse(StrictModel):
     versions: list[PromptVersionSummary]
 
 
+class PromptVersionDetail(PromptVersionSummary):
+    content: str
+
+
 class PromotePromptVersionRequest(StrictModel):
     confirm_content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")

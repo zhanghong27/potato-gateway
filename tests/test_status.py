@@ -84,6 +84,9 @@ def test_calibration_console_exposes_session_lifecycle_controls(
     assert "candidateGenerationBusy" in response.text
     assert "goToCandidateTest(" in response.text
     assert "Date.parse(b.created_at)-Date.parse(a.created_at)" in response.text
+    assert "查看完整 Prompt 草案" in response.text
+    assert "loadPromptDraft(" in response.text
+    assert "/api/admin/agents/${agent}/prompt-versions/${promptVersionId}" in response.text
 
 
 def test_versioned_action_schema_is_public_and_not_cached(client: TestClient) -> None:

@@ -664,6 +664,20 @@ def test_generated_prompt_candidate_runs_in_an_isolated_profile(
     assert "Do not use image zooms" in candidate["managed_addendum"]
     assert prompt_path.read_text(encoding="utf-8") == original
 
+    detail = client.get(
+        f"/api/admin/agents/creator/prompt-versions/{candidate['prompt_version_id']}",
+        headers=headers(),
+    )
+    assert detail.status_code == 200
+    assert detail.json()["content"].startswith(original)
+    assert detail.json()["content"].endswith(
+        "<!-- POTATO CALIBRATION ADDENDUM END -->\n"
+    )
+    assert (
+        "/api/admin/agents/{agent_id}/prompt-versions/{prompt_version_id}"
+        not in client.get("/openapi.json").json()["paths"]
+    )
+
     queued = client.post(
         f"/api/calibrations/{session['session_id']}/prompt-candidates/{candidate['prompt_version_id']}/tests",
         headers=headers(),
