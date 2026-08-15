@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlparse
 
 import pytest
@@ -12,6 +13,7 @@ from potato_gateway.adapters import HubClient, HubUnavailableError, sanitize_hub
 from potato_gateway.adapters.hub_client import HubStreamResponse
 from potato_gateway.config import Settings
 from potato_gateway.main import create_app
+from potato_gateway.services.prompt_version_service import PromptVersionService
 
 
 TOKEN = "gateway-integration-test-token-" + "x" * 48
@@ -682,6 +684,39 @@ def test_generated_prompt_candidate_runs_in_an_isolated_profile(
         "<!-- POTATO CALIBRATION ADDENDUM END -->\n"
     )
     assert prompt_path.read_text(encoding="utf-8") == original
+
+
+def test_generated_addendum_keeps_style_metrics_out_of_blocking_rules() -> None:
+    review = SimpleNamespace(
+        report={
+            "hard_errors": [{"fix": "Return a playable H.264 video"}],
+            "revision_requirements": ["Aim for average frame difference above 5.0"],
+            "style_findings": [{"recommendation": "Use more meaningful subject motion"}],
+        }
+    )
+
+    addendum, summary = PromptVersionService._build_addendum(
+        "Improve motion",
+        ["Keep the video factual"],
+        [review],
+        [],
+        "",
+    )
+
+    blocking = addendum.split("## Blocking requirements", 1)[1].split(
+        "## Quality targets", 1
+    )[0]
+    quality = addendum.split("## Quality targets", 1)[1].split(
+        "## Execution budget", 1
+    )[0]
+    assert "Keep the video factual" in blocking
+    assert "Return a playable H.264 video" in blocking
+    assert "average frame difference" not in blocking
+    assert "average frame difference" in quality
+    assert "meaningful subject motion" in quality
+    assert "one corrective full render" in addendum
+    assert "2 条硬性规则" in summary
+    assert "2 条质量目标" in summary
 
 
 def test_creator_prompt_activation_is_blocked_by_critic_hard_error(

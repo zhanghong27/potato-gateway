@@ -261,18 +261,18 @@ class PromptVersionService:
             for turn in turns
             if turn.actor == "user" and turn.kind in {"critique", "note"} and turn.content.strip()
         ][-8:]
-        critic_rules: list[str] = []
+        quality_targets: list[str] = []
         hard_error_rules: list[str] = []
         for review in reviews[-5:]:
             report = review.report if isinstance(review.report, dict) else {}
             for item in report.get("revision_requirements", []):
                 if isinstance(item, str) and item.strip():
-                    critic_rules.append(item.strip())
+                    quality_targets.append(item.strip())
             for item in report.get("style_findings", []):
                 if isinstance(item, dict):
                     value = str(item.get("recommendation") or item.get("observation") or "").strip()
                     if value:
-                        critic_rules.append(value)
+                        quality_targets.append(value)
             for item in report.get("hard_errors", []):
                 if isinstance(item, dict):
                     value = str(item.get("fix") or item.get("problem") or "").strip()
@@ -295,7 +295,8 @@ class PromptVersionService:
                     break
             return result
 
-        required = unique([*criteria, *hard_error_rules, *critic_rules], 18)
+        blocking = unique([*criteria, *hard_error_rules], 12)
+        quality = unique(quality_targets, 18)
         feedback = unique(user_feedback, 8)
         guidance = unique([additional_guidance], 1)
         clean_goal = re.sub(r"\s+", " ", goal).strip()
@@ -303,11 +304,15 @@ class PromptVersionService:
             MANAGED_ADDENDUM_START,
             "# Current calibration addendum",
             "",
-            "Treat these rules as mandatory additions to the stable role definition above.",
+            "Blocking requirements below are mandatory. Quality targets guide a bounded improvement pass and are not automatic delivery blockers.",
             f"Calibration objective: {clean_goal}",
         ]
-        if required:
-            lines.extend(["", "## Required behavior", *[f"- {item}" for item in required]])
+        if blocking:
+            lines.extend(
+                ["", "## Blocking requirements", *[f"- {item}" for item in blocking]]
+            )
+        if quality:
+            lines.extend(["", "## Quality targets", *[f"- {item}" for item in quality]])
         if feedback:
             lines.extend(["", "## User quality direction", *[f"- {item}" for item in feedback]])
         if guidance:
@@ -315,15 +320,23 @@ class PromptVersionService:
         lines.extend(
             [
                 "",
+                "## Execution budget",
+                "- Produce one valid deliverable before optional optimization.",
+                "- Treat numeric motion scores, shot counts, and style findings as evaluation signals unless they are listed under Blocking requirements.",
+                "- For media work, perform at most one QA pass and one corrective full render after the first playable render.",
+                "- Do not add arbitrary decorative motion or noise solely to chase a mechanical metric.",
+                "- If a quality target remains unmet after the bounded correction, report it honestly and return the real artifacts instead of continuing indefinitely.",
+                "- Do not leave renders or tools running in the background. Reserve enough time and turns to return the final structured artifact manifest.",
+                "",
                 "## Before delivery",
-                "- Verify the output against every rule in this addendum and report any unmet requirement honestly.",
+                "- Verify every Blocking requirement and inspect the Quality targets; report any unmet item honestly.",
                 "- Do not claim that an asset, check, or tool result exists unless it was actually produced or inspected.",
                 MANAGED_ADDENDUM_END,
             ]
         )
         summary = (
-            f"校准闭环：{goal[:120]}；纳入 {len(required)} 条评审规则、"
-            f"{len(feedback)} 条用户反馈"
+            f"校准闭环：{goal[:120]}；纳入 {len(blocking)} 条硬性规则、"
+            f"{len(quality)} 条质量目标、{len(feedback)} 条用户反馈"
         )
         return "\n".join(lines), summary
 
