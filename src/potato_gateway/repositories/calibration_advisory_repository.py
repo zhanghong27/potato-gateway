@@ -131,6 +131,25 @@ class CalibrationAdvisoryRepository:
         except (DatabaseUnavailableError, sqlite3.Error, ValueError, TypeError):
             raise CalibrationAdvisoryPersistenceError from None
 
+    def find_by_prompt_version(
+        self, prompt_version_id: str
+    ) -> CalibrationAdvisoryRecord | None:
+        self.database.initialize()
+        try:
+            with self.database.connection() as connection:
+                row = connection.execute(
+                    """
+                    SELECT * FROM calibration_advisories
+                    WHERE prompt_version_id = ? AND status = 'completed'
+                    ORDER BY completed_at DESC
+                    LIMIT 1
+                    """,
+                    (prompt_version_id,),
+                ).fetchone()
+            return self._from_row(row) if row else None
+        except (DatabaseUnavailableError, sqlite3.Error, ValueError, TypeError):
+            raise CalibrationAdvisoryPersistenceError from None
+
     def list(
         self,
         *,

@@ -799,6 +799,9 @@ def test_prompt_candidate(
     prompt_service: Annotated[
         PromptVersionService, Depends(get_calibration_prompt_service)
     ],
+    advisory_service: Annotated[
+        CalibrationAdvisoryService, Depends(get_calibration_advisory_service)
+    ],
 ) -> CalibrationExecutionResponse:
     try:
         session = (
@@ -808,11 +811,23 @@ def test_prompt_candidate(
         )
         if session is None:
             raise CalibrationSessionNotFoundError(session_id)
+        advisory = advisory_service.get_for_prompt_version(prompt_version_id)
         _candidate, profile_name = prompt_service.prepare_test(
             session.agent_id, session_id, prompt_version_id
         )
         generated_request = execution_service.build_candidate_test_request(
-            session_id, payload
+            session_id,
+            payload,
+            recommended_instruction=(
+                advisory.analysis.retest_instruction
+                if advisory is not None and advisory.analysis is not None
+                else ""
+            ),
+            recommended_acceptance_criteria=(
+                advisory.analysis.acceptance_criteria
+                if advisory is not None and advisory.analysis is not None
+                else None
+            ),
         )
         execution, created = execution_service.execute(
             session_id,
@@ -826,6 +841,7 @@ def test_prompt_candidate(
         raise HTTPException(status_code=409, detail=str(exc)) from None
     except (
         CalibrationExecutionServiceUnavailableError,
+        CalibrationAdvisoryServiceUnavailableError,
         PromptVersionServiceUnavailableError,
     ):
         raise HTTPException(status_code=503, detail="Prompt candidate test could not be queued") from None

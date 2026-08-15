@@ -737,6 +737,7 @@ def test_chatgpt_advisory_builds_candidate_from_distilled_patch(
     gateway: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client, hermes_home = gateway
+    queued_payload: dict[str, object] = {}
 
     def fake_request(self, method, path, payload=None, *, headers=None, sanitize=True):
         if method == "GET" and path == "/api/assets/41/calibration-preview":
@@ -754,6 +755,9 @@ def test_chatgpt_advisory_builds_candidate_from_distilled_patch(
                     "truncated": False,
                 }
             }
+        if method == "POST" and path == "/api/calibration-jobs":
+            queued_payload.update(payload or {})
+            return {"calibration_job": {"job_id": "job-advisor-retest"}}
         raise AssertionError((method, path, payload))
 
     monkeypatch.setattr(HubClient, "request", fake_request)
@@ -941,6 +945,16 @@ def test_chatgpt_advisory_builds_candidate_from_distilled_patch(
     assert analysis["prompt_patch"][0] in detail["content"]
     assert "Visually polished but emotionally distant" not in detail["content"]
     assert "Do not preserve the old 26-second scene recipe" not in detail["content"]
+
+    queued = client.post(
+        f"/api/calibrations/{session_id}/prompt-candidates/{result['prompt_version_id']}/tests",
+        headers=headers(),
+        json={"client_turn_id": "advisor-retest-1", "instruction": ""},
+    )
+    assert queued.status_code == 202
+    assert analysis["retest_instruction"] in queued_payload["instruction"]
+    assert analysis["acceptance_criteria"][0] in queued_payload["instruction"]
+    assert "自主选择一个能充分检验目标的具体题材" not in queued_payload["instruction"]
 
 
 def test_creator_prompt_activation_is_blocked_by_critic_hard_error(

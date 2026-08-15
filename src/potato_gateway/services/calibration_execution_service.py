@@ -35,6 +35,9 @@ class CalibrationExecutionService:
         self,
         session_id: str,
         request: TestPromptCandidateRequest,
+        *,
+        recommended_instruction: str = "",
+        recommended_acceptance_criteria: list[str] | None = None,
     ) -> ExecuteCalibrationTurnRequest:
         try:
             session = self.session_repository.get_session(session_id)
@@ -64,7 +67,25 @@ class CalibrationExecutionService:
                         *[f"- {item}" for item in session.acceptance_criteria],
                     ]
                 )
-            if baseline is not None:
+            if recommended_instruction.strip():
+                lines.extend(
+                    [
+                        "ChatGPT 为这个候选版本制定的本轮复测任务：",
+                        recommended_instruction.strip(),
+                    ]
+                )
+                if recommended_acceptance_criteria:
+                    lines.extend(
+                        [
+                            "ChatGPT 为本轮制定的验收标准：",
+                            *[
+                                f"- {item}"
+                                for item in recommended_acceptance_criteria
+                                if item.strip()
+                            ],
+                        ]
+                    )
+            elif baseline is not None:
                 lines.extend(
                     [
                         "为保证前后结果可比较，请重新执行下面的原始基准任务：",

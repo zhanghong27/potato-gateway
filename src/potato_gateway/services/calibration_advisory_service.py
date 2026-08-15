@@ -138,6 +138,15 @@ class CalibrationAdvisoryService:
         except (CalibrationAdvisoryPersistenceError, ValidationError):
             raise CalibrationAdvisoryServiceUnavailableError from None
 
+    def get_for_prompt_version(
+        self, prompt_version_id: str
+    ) -> CalibrationAdvisoryResponse | None:
+        try:
+            record = self.repository.find_by_prompt_version(prompt_version_id)
+            return self._response(record) if record is not None else None
+        except (CalibrationAdvisoryPersistenceError, ValidationError):
+            raise CalibrationAdvisoryServiceUnavailableError from None
+
     def bundle(self, advisory_id: str) -> CalibrationAdvisoryBundle:
         try:
             record = self.repository.get(advisory_id)

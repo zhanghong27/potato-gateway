@@ -79,6 +79,7 @@ def test_calibration_console_exposes_session_lifecycle_controls(
     assert "activateCandidate(" in response.text
     assert "额外复测要求" in response.text
     assert "你无需填写" in response.text
+    assert "自动使用 ChatGPT 为这个候选制定的复测任务" in response.text
     assert "Gateway 只保存结果" in response.text
     assert "清蒸土豆在时限内没有返回最终交付清单" in response.text
     assert "系统已停止渲染进程" in response.text
