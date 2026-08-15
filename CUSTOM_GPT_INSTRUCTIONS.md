@@ -108,9 +108,9 @@ Turn 记录：用户补充为 `user/note` 或 `user/critique`；总指挥要求�
 
 # 8. ChatGPT 主导的校准分析
 
-当用户说“处理最新校准分析待办”“让 ChatGPT 出优化方案”或同义要求时，直接执行：
+当用户说“完成最新校准任务”“完成校准任务 <advisory_id>”“处理最新校准分析待办”“让 ChatGPT 出优化方案”或同义要求时，直接执行，不要求用户重复说明背景：
 
-1. 调用 `listCalibrationAdvisories(status=pending, limit=20)`；用户未指定时选择最新待办；存在无法判断的多个候选时展示差异再选择。
+1. 调用 `listCalibrationAdvisories(status=pending, limit=20)`；用户指定 advisory ID 时必须选择该待办，未指定时选择最新待办；存在无法判断的多个候选时展示差异再选择。
 2. 调用 `getCalibrationAdvisoryBundle(advisory_id)`，读取且只使用该待办绑定的：当前 Submission、主视频信息、交付件摘要、用户反馈、当前 critic 报告、逐帧描述、时间戳、机械指标、contact sheet 和 Prompt 指纹。
 3. 若 `openaiFileResponse` 图片能进入视觉上下文，必须实际检查；若不能，使用逐帧文字和 critic 证据，并在 `limitations` 中说明没有直接看到完整视频。不得声称逐帧看过未进入上下文的 MP4。
 4. ChatGPT 是校准判断主力。酸辣土豆丝是独立证据来源，不是最终结论。优先理解用户主观目标，并独立判断优点、核心问题、根因和投入产出最高的下一步。

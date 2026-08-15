@@ -72,19 +72,22 @@ def test_calibration_console_exposes_session_lifecycle_controls(
     assert "重新获取播放链接" in response.text
     assert "候选版本产物" in response.text
     assert "createAdvisory()" in response.text
-    assert "copyCommanderInstruction(" in response.text
-    assert "交给 ChatGPT 深度分析" in response.text
-    assert "现在没有本地模型在后台运行" in response.text
+    assert "创建 ChatGPT 校准任务" in response.text
+    assert "copyAndOpenChatGpt(" in response.text
+    assert "复制并打开 ChatGPT" in response.text
+    assert "完成校准任务" in response.text
+    assert "x.submission_id===source.submission.submission_id" in response.text
+    assert "x.review_id===source.review.review_id" in response.text
     assert "testCandidate(" in response.text
     assert "activateCandidate(" in response.text
     assert "额外复测要求" in response.text
     assert "你无需填写" in response.text
     assert "自动使用 ChatGPT 为这个候选制定的复测任务" in response.text
-    assert "Gateway 只保存结果" in response.text
+    assert "自动生成下一版 Prompt 草案" in response.text
     assert "清蒸土豆在时限内没有返回最终交付清单" in response.text
     assert "系统已停止渲染进程" in response.text
     assert "ChatGPT 综合判断" in response.text
-    assert "等待土豆总指挥分析" in response.text
+    assert "ChatGPT 校准任务待处理" in response.text
     assert "goToCandidateTest(" in response.text
     assert "Date.parse(b.created_at)-Date.parse(a.created_at)" in response.text
     assert "查看完整 Prompt 草案" in response.text
