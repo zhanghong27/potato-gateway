@@ -29,7 +29,7 @@ ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.7.yaml"
 LEGACY_ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.6.yaml"
 OLDER_ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.5.yaml"
 OLDEST_ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.4.yaml"
-ACTION_SCHEMA_BUILD = "chatgpt-advisory-30ops-3.1-20260815"
+ACTION_SCHEMA_BUILD = "chatgpt-advisory-short-desc-30ops-20260815"
 
 
 def configure_logging(log_level: str) -> None:

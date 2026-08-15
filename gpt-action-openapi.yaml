@@ -7,7 +7,7 @@ info:
     Hermes Agent profiles, running visible multi-agent video workflows, and
     managing structured calibration sessions.
   version: 0.2.7
-  x-potato-schema-build: chatgpt-advisory-30ops-3.1-20260815
+  x-potato-schema-build: chatgpt-advisory-short-desc-30ops-20260815
 
 servers:
   - url: https://zhanghongmac-mini.tail282e0b.ts.net
@@ -570,11 +570,9 @@ paths:
       operationId: createCalibrationAdvisory
       summary: Create a ChatGPT-led calibration analysis task
       description: >
-        Creates one pending analysis task bound to a completed Submission and
-        critic review. This does not run a local model or generate a Prompt.
-        After creating it, use getCalibrationAdvisoryBundle to inspect the
-        bound evidence and submitCalibrationAdvisory to write back ChatGPT's
-        independent analysis.
+        Creates a pending task bound to one completed Submission and critic
+        review. It does not run a local model or generate a Prompt. Then read
+        the bundle and submit ChatGPT's independent analysis.
       parameters:
         - name: session_id
           in: path
@@ -653,11 +651,10 @@ paths:
       operationId: getCalibrationAdvisoryBundle
       summary: Get the complete evidence bundle for ChatGPT analysis
       description: >
-        Returns the current Submission, delivery previews, the user's own
-        feedback, the critic report, frame descriptions, contact sheets, and
-        active Prompt fingerprint. Inspect the contact sheets in
-        openaiFileResponse when visual context is available. Treat the critic
-        report as one source of evidence, not as the final judgment.
+        Returns the current Submission, delivery previews, user feedback,
+        critic report, frame descriptions, metrics, contact sheets, and Prompt
+        fingerprint. Inspect openaiFileResponse when vision is available.
+        Treat critic output as evidence, not final judgment.
       parameters:
         - name: advisory_id
           in: path
@@ -679,14 +676,10 @@ paths:
       operationId: submitCalibrationAdvisory
       summary: Submit ChatGPT's independent analysis and create a draft Prompt
       description: >
-        Before calling, independently reconcile the user's subjective intent,
-        the current video and delivery package, critic findings, and visual
-        evidence. Do not merely repeat or concatenate existing feedback. Find
-        likely root causes, identify stale or contradictory old rules, rank a
-        small number of concrete changes, write a precise Prompt patch, and
-        define an isolated retest. Cite only Asset IDs present in this task's
-        bundle. The Gateway validates and stores this analysis, then creates a
-        draft candidate from only the distilled patch; it never activates it.
+        Assess user intent, current delivery, critic findings, and visual
+        evidence independently. Identify root causes, rank concrete changes,
+        write a concise Prompt patch, and define a retest. Cite only Asset IDs
+        in this bundle. The candidate remains a draft.
       parameters:
         - name: advisory_id
           in: path

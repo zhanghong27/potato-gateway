@@ -48,7 +48,7 @@ def test_custom_gpt_action_schema_uses_explicit_objects_and_parameters() -> None
     assert document["info"]["version"] == "0.2.7"
     assert (
         document["info"]["x-potato-schema-build"]
-        == "chatgpt-advisory-30ops-3.1-20260815"
+        == "chatgpt-advisory-short-desc-30ops-20260815"
     )
 
     operation_ids: list[str] = []
@@ -58,6 +58,11 @@ def test_custom_gpt_action_schema_uses_explicit_objects_and_parameters() -> None
             if not isinstance(operation, dict) or "operationId" not in operation:
                 continue
             operation_ids.append(operation["operationId"])
+            assert len(operation.get("description", "")) <= 300, (
+                route,
+                method,
+                len(operation.get("description", "")),
+            )
             parameters = operation.get("parameters", [])
             assert all("$ref" not in parameter for parameter in parameters)
             path_names = {
