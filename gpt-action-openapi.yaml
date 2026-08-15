@@ -7,7 +7,7 @@ info:
     Hermes Agent profiles, running visible multi-agent video workflows, and
     managing structured calibration sessions.
   version: 0.2.7
-  x-potato-schema-build: chatgpt-advisory-3.1-20260815
+  x-potato-schema-build: chatgpt-advisory-30ops-3.1-20260815
 
 servers:
   - url: https://zhanghongmac-mini.tail282e0b.ts.net
@@ -534,81 +534,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CalibrationExecution"
 
-  /api/calibrations/{session_id}/executions/{execution_id}/reviews:
-    post:
-      operationId: createCalibrationReview
-      summary: Ask the critic to review a completed creator calibration video
-      description: >
-        Manually queues an independent critic review. The same idempotency key
-        returns the existing review and never creates duplicate frame extraction.
-      parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: execution_id
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateCalibrationReviewRequest"
-      responses:
-        "202":
-          description: Calibration review queued
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CalibrationReview"
-        "200":
-          description: Existing idempotent review returned
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CalibrationReview"
-        "409":
-          description: The execution is not an eligible completed creator calibration
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
 
-  /api/calibrations/{session_id}/executions/{execution_id}/reviews/{review_id}:
-    get:
-      operationId: getCalibrationReview
-      summary: Poll the critic calibration review and get its structured report
-      parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: execution_id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: review_id
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Current review state and report when complete
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CalibrationReview"
 
   /api/calibrations/{session_id}/reviews/{review_id}/evidence:
     get:
@@ -721,25 +647,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/CalibrationAdvisoryList"
 
-  /api/calibration-advisories/{advisory_id}:
-    get:
-      operationId: getCalibrationAdvisory
-      summary: Get ChatGPT calibration analysis status and result
-      parameters:
-        - name: advisory_id
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Analysis task and result when completed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CalibrationAdvisory"
 
   /api/calibration-advisories/{advisory_id}/bundle:
     get:
@@ -808,41 +715,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /api/calibrations/{session_id}/prompt-candidates:
-    post:
-      operationId: generatePromptCandidate
-      summary: Legacy deterministic fallback for a draft Prompt candidate
-      description: >
-        Compatibility fallback that compiles stored rules without ChatGPT
-        reasoning. Prefer the calibration advisory flow for video calibration.
-        The full Prompt remains private and the draft is not activated.
-      parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema:
-            type: string
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GeneratePromptCandidateRequest"
-      responses:
-        "201":
-          description: Draft candidate generated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PromptVersionSummary"
-        "200":
-          description: Existing idempotent candidate returned
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PromptVersionSummary"
 
   /api/calibrations/{session_id}/prompt-candidates/{prompt_version_id}/tests:
     post:
@@ -885,31 +757,6 @@ paths:
                 $ref: "#/components/schemas/CalibrationExecution"
 
   /api/agents/{agent_id}/prompt-versions:
-    post:
-      operationId: createPromptCandidate
-      summary: Store a candidate Prompt version without activating it
-      parameters:
-        - name: agent_id
-          in: path
-          required: true
-          schema:
-            type: string
-            enum: [researcher, creator, critic]
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreatePromptCandidateRequest"
-      responses:
-        "201":
-          description: Candidate created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PromptVersionSummary"
     get:
       operationId: listPromptVersions
       summary: List Prompt version metadata without Prompt content

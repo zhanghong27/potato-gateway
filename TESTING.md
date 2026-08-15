@@ -6,8 +6,8 @@
 2. 删除旧 Action 配置并新建一个 Action，选择从 URL 导入：
    `https://zhanghongmac-mini.tail282e0b.ts.net/potato-actions-v0.2.7.yaml`
 3. Authentication 选择 API Key、Bearer，填入现有 `POTATO_GATEWAY_TOKEN`。
-4. 确认标题为 `Potato Gateway Actions Safe`、版本为 `0.2.7`，build 为 `chatgpt-advisory-3.1-20260815`。
-5. 保存后应识别 35 个 Actions，且不应出现 warning 或 skipped function。
+4. 确认标题为 `Potato Gateway Actions Safe`、版本为 `0.2.7`，build 为 `chatgpt-advisory-30ops-3.1-20260815`。
+5. 保存后应识别 30 个 Actions，且不应出现 warning 或 skipped function。
 
 ## 历史交付包校准
 
