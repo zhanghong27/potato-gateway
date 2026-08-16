@@ -667,6 +667,39 @@ def test_prompt_candidate_requires_explicit_hash_promotion_and_can_rollback(
     assert "/api/admin/agents/{agent_id}/prompt-versions/{prompt_version_id}/rollback" not in client.get("/openapi.json").json()["paths"]
 
 
+def test_legacy_candidate_with_case_specific_retest_rules_cannot_be_promoted(
+    gateway: tuple[TestClient, Path],
+) -> None:
+    client, _hermes_home = gateway
+    created = client.post(
+        "/api/agents/creator/prompt-versions",
+        headers=headers(),
+        json={
+            "client_request_id": "legacy-retest-candidate",
+            "content": (
+                "creator prompt\n\n"
+                "## Retest acceptance\n"
+                "- At 12 seconds show the current test asset.\n"
+            ),
+            "change_summary": "Legacy mixed capability and retest candidate",
+        },
+    )
+    assert created.status_code == 201
+    candidate = created.json()
+    assert client.post(
+        f"/api/admin/agents/creator/prompt-versions/{candidate['prompt_version_id']}/testing",
+        headers=headers(),
+    ).status_code == 200
+
+    promoted = client.post(
+        f"/api/admin/agents/creator/prompt-versions/{candidate['prompt_version_id']}/promote",
+        headers=headers(),
+        json={"confirm_content_sha256": candidate["content_sha256"]},
+    )
+    assert promoted.status_code == 409
+    assert "case-specific retest rules" in promoted.json()["detail"]
+
+
 def test_generated_prompt_candidate_runs_in_an_isolated_profile(
     gateway: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -793,6 +826,7 @@ def test_chatgpt_advisory_builds_candidate_from_distilled_patch(
 ) -> None:
     client, hermes_home = gateway
     queued_payload: dict[str, object] = {}
+    tooling_payloads: list[dict[str, object]] = []
 
     def fake_request(self, method, path, payload=None, *, headers=None, sanitize=True):
         if method == "GET" and path == "/api/assets/41/calibration-preview":
@@ -813,6 +847,9 @@ def test_chatgpt_advisory_builds_candidate_from_distilled_patch(
         if method == "POST" and path == "/api/calibration-jobs":
             queued_payload.update(payload or {})
             return {"calibration_job": {"job_id": "job-advisor-retest"}}
+        if method == "POST" and path == "/api/calibration-tooling-tasks":
+            tooling_payloads.append(payload or {})
+            return {"workflow": {"workflow_id": "wf-tooling-1"}, "created": True}
         raise AssertionError((method, path, payload))
 
     monkeypatch.setattr(HubClient, "request", fake_request)
@@ -901,6 +938,7 @@ def test_chatgpt_advisory_builds_candidate_from_distilled_patch(
     assert bundle.json()["user_feedback"] == [
         "The video feels synthetic and emotionally distant."
     ]
+    assert bundle.json()["calibration_history"] == []
     other_session = client.post(
         "/api/calibrations",
         headers=headers(),
@@ -947,13 +985,32 @@ def test_chatgpt_advisory_builds_candidate_from_distilled_patch(
             }
         ],
         "stale_rules_to_drop": ["Do not preserve the old 26-second scene recipe."],
-        "prompt_patch": [
+        "persistent_capability_gaps": [
+            "Vertical composition repeatedly leaves the lower frame unused."
+        ],
+        "capability_patch": [
             "Begin with a concrete person, situation, and consequence before explaining the system.",
             "Use real sourced images or cases when the topic depends on audience empathy.",
         ],
-        "retest_instruction": "Create a 45-60 second video around one concrete creator story.",
-        "acceptance_criteria": [
-            "The first three seconds identify a person, problem, and stake."
+        "retest_spec": {
+            "instruction": "Create a 45-60 second video around one concrete creator story.",
+            "acceptance_criteria": [
+                "The first three seconds identify a person, problem, and stake."
+            ],
+            "regression_checks": [
+                "The lower quarter is not left empty for more than one second."
+            ],
+        },
+        "tooling_tasks": [
+            {
+                "title": "Add vertical composition preflight",
+                "category": "qa",
+                "severity": "high",
+                "problem": "Repeated renders leave the lower frame unused.",
+                "expected_outcome": "Representative frames are blocked before rendering when layout coverage is poor.",
+                "acceptance_criteria": ["Report per-beat vertical coverage."],
+                "evidence_asset_ids": [101],
+            }
         ],
         "limitations": ["Direct motion quality still requires watching the rendered video."],
     }
@@ -997,9 +1054,14 @@ def test_chatgpt_advisory_builds_candidate_from_distilled_patch(
         headers=headers(),
     ).json()
     assert "# ChatGPT calibration patch" in detail["content"]
-    assert analysis["prompt_patch"][0] in detail["content"]
+    assert analysis["capability_patch"][0] in detail["content"]
+    assert analysis["retest_spec"]["instruction"] not in detail["content"]
+    assert analysis["retest_spec"]["acceptance_criteria"][0] not in detail["content"]
+    assert analysis["user_intent"] not in detail["content"]
     assert "Visually polished but emotionally distant" not in detail["content"]
     assert "Do not preserve the old 26-second scene recipe" not in detail["content"]
+    assert tooling_payloads[0]["advisory_id"] == advisory_id
+    assert tooling_payloads[0]["category"] == "qa"
 
     queued = client.post(
         f"/api/calibrations/{session_id}/prompt-candidates/{result['prompt_version_id']}/tests",
@@ -1007,8 +1069,9 @@ def test_chatgpt_advisory_builds_candidate_from_distilled_patch(
         json={"client_turn_id": "advisor-retest-1", "instruction": ""},
     )
     assert queued.status_code == 202
-    assert analysis["retest_instruction"] in queued_payload["instruction"]
-    assert analysis["acceptance_criteria"][0] in queued_payload["instruction"]
+    assert analysis["retest_spec"]["instruction"] in queued_payload["instruction"]
+    assert analysis["retest_spec"]["acceptance_criteria"][0] in queued_payload["instruction"]
+    assert analysis["retest_spec"]["regression_checks"][0] in queued_payload["instruction"]
     assert "自主选择一个能充分检验目标的具体题材" not in queued_payload["instruction"]
 
 

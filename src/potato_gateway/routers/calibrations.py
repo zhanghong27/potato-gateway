@@ -269,6 +269,11 @@ def get_calibration_advisory_service(
             get_calibration_submission_service(request),
             get_calibration_review_service(request),
             get_calibration_prompt_service(request),
+            HubClient(
+                settings.hub_url,
+                token=settings.resolved_hub_token(),
+                timeout=max(settings.hub_timeout_seconds, 30),
+            ),
         )
     except DatabaseUnavailableError:
         raise HTTPException(
@@ -819,12 +824,15 @@ def test_prompt_candidate(
             session_id,
             payload,
             recommended_instruction=(
-                advisory.analysis.retest_instruction
+                advisory.analysis.retest_spec.instruction
                 if advisory is not None and advisory.analysis is not None
                 else ""
             ),
             recommended_acceptance_criteria=(
-                advisory.analysis.acceptance_criteria
+                [
+                    *advisory.analysis.retest_spec.acceptance_criteria,
+                    *advisory.analysis.retest_spec.regression_checks,
+                ]
                 if advisory is not None and advisory.analysis is not None
                 else None
             ),

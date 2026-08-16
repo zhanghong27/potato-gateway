@@ -103,7 +103,7 @@ def test_versioned_action_schema_is_public_and_not_cached(client: TestClient) ->
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert (
         response.headers["x-potato-schema-build"]
-        == "chatgpt-advisory-short-desc-30ops-20260815"
+        == "split-capability-retest-tooling-30ops-20260816"
     )
     assert response.text.startswith("openapi: 3.1.0")
     assert "version: 0.2.7" in response.text

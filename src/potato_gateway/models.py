@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 ServiceStatus = Literal["running"]
@@ -479,6 +479,22 @@ class CalibrationAdvisoryAction(StrictModel):
     evidence_asset_ids: list[int] = Field(default_factory=list, max_length=20)
 
 
+class CalibrationRetestSpec(StrictModel):
+    instruction: str = Field(min_length=1, max_length=12_000)
+    acceptance_criteria: list[str] = Field(min_length=1, max_length=20)
+    regression_checks: list[str] = Field(default_factory=list, max_length=20)
+
+
+class CalibrationToolingTask(StrictModel):
+    title: str = Field(min_length=1, max_length=240)
+    category: Literal["skill", "tool", "template", "qa", "operations"]
+    severity: Literal["high", "medium", "low"]
+    problem: str = Field(min_length=1, max_length=6000)
+    expected_outcome: str = Field(min_length=1, max_length=6000)
+    acceptance_criteria: list[str] = Field(min_length=1, max_length=20)
+    evidence_asset_ids: list[int] = Field(default_factory=list, max_length=20)
+
+
 class SubmitCalibrationAdvisoryRequest(StrictModel):
     executive_summary: str = Field(min_length=1, max_length=12_000)
     user_intent: str = Field(min_length=1, max_length=6000)
@@ -488,10 +504,29 @@ class SubmitCalibrationAdvisoryRequest(StrictModel):
         min_length=1, max_length=15
     )
     stale_rules_to_drop: list[str] = Field(default_factory=list, max_length=30)
-    prompt_patch: list[str] = Field(min_length=1, max_length=30)
-    retest_instruction: str = Field(min_length=1, max_length=12_000)
-    acceptance_criteria: list[str] = Field(min_length=1, max_length=20)
+    persistent_capability_gaps: list[str] = Field(default_factory=list, max_length=20)
+    capability_patch: list[str] = Field(default_factory=list, max_length=30)
+    retest_spec: CalibrationRetestSpec | None = None
+    tooling_tasks: list[CalibrationToolingTask] = Field(default_factory=list, max_length=10)
+    prompt_patch: list[str] = Field(default_factory=list, max_length=30)
+    retest_instruction: str = Field(default="", max_length=12_000)
+    acceptance_criteria: list[str] = Field(default_factory=list, max_length=20)
     limitations: list[str] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def normalize_split_calibration_output(self) -> "SubmitCalibrationAdvisoryRequest":
+        if not self.capability_patch:
+            self.capability_patch = list(self.prompt_patch)
+        if self.retest_spec is None and self.retest_instruction.strip():
+            self.retest_spec = CalibrationRetestSpec(
+                instruction=self.retest_instruction,
+                acceptance_criteria=list(self.acceptance_criteria),
+            )
+        if not self.capability_patch:
+            raise ValueError("capability_patch is required")
+        if self.retest_spec is None:
+            raise ValueError("retest_spec is required")
+        return self
 
 
 class CalibrationAdvisoryResponse(StrictModel):
@@ -511,6 +546,19 @@ class CalibrationAdvisoryListResponse(StrictModel):
     advisories: list[CalibrationAdvisoryResponse]
 
 
+class CalibrationHistoryRound(StrictModel):
+    advisory_id: str
+    submission_id: str
+    review_id: str
+    review_verdict: str
+    review_score: float | None = None
+    review_summary: str
+    advisory_summary: str
+    capability_patch: list[str]
+    tooling_task_titles: list[str]
+    created_at: datetime
+
+
 class CalibrationAdvisoryBundle(StrictModel):
     advisory: CalibrationAdvisoryResponse
     agent_id: CalibratableAgentIdField
@@ -520,6 +568,7 @@ class CalibrationAdvisoryBundle(StrictModel):
     submission: CalibrationSubmissionResponse
     critic_review: CalibrationReviewResponse
     evidence: CalibrationEvidenceResponse
+    calibration_history: list[CalibrationHistoryRound]
     active_prompt_content_sha256: str
 
 

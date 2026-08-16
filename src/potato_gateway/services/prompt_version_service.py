@@ -113,7 +113,7 @@ class PromptVersionService:
             addendum = self._build_advised_addendum(advisory_id, analysis)
             content = self._with_managed_addendum(active.content, addendum)
             record, created = self.repository.create_candidate(
-                client_request_id=f"advisor.{advisory_id}",
+                client_request_id=f"advisor.{advisory_id}.capability-v2",
                 agent_id=agent_id,
                 content=content,
                 base_content_sha256=active.content_sha256,
@@ -217,6 +217,10 @@ class PromptVersionService:
                 raise PromptVersionNotFoundError(prompt_version_id)
             if candidate.content_sha256 != confirm_content_sha256:
                 raise PromptVersionConflictError("confirmation hash does not match")
+            if "## Retest acceptance" in candidate.content:
+                raise PromptVersionConflictError(
+                    "legacy candidate embeds case-specific retest rules; create a split capability candidate"
+                )
             if candidate.calibration_session_id and self.review_repository is not None:
                 blocker = self.review_repository.prompt_version_activation_blocker(
                     candidate.prompt_version_id,
@@ -408,23 +412,16 @@ class PromptVersionService:
                     break
             return result
 
-        prompt_patch = clean(analysis.prompt_patch, 24)
-        acceptance = clean(analysis.acceptance_criteria, 16)
+        capability_patch = clean(analysis.capability_patch, 24)
         lines = [
             MANAGED_ADDENDUM_START,
             "# ChatGPT calibration patch",
             "",
             f"Source advisory: {advisory_id}",
-            "This patch is ChatGPT's distilled recommendation from the current video, delivery package, user feedback, critic report, and visual evidence. It replaces older calibration addenda instead of accumulating their raw history.",
+            "This patch contains only reusable production behavior. Case-specific shots, timestamps, assets, acceptance checks, and user feedback remain in the isolated retest specification and are never promoted with this Prompt.",
             "",
-            "## Current user outcome",
-            f"- {re.sub(r'\s+', ' ', analysis.user_intent).strip()[:4000]}",
-            "",
-            "## Required behavior",
-            *[f"- {item}" for item in prompt_patch],
-            "",
-            "## Retest acceptance",
-            *[f"- {item}" for item in acceptance],
+            "## Reusable capability rules",
+            *[f"- {item}" for item in capability_patch],
             "",
             "## Execution discipline",
             "- Produce a playable deliverable before optional polish.",

@@ -7,7 +7,7 @@ info:
     Hermes Agent profiles, running visible multi-agent video workflows, and
     managing structured calibration sessions.
   version: 0.2.7
-  x-potato-schema-build: chatgpt-advisory-short-desc-30ops-20260815
+  x-potato-schema-build: split-capability-retest-tooling-30ops-20260816
 
 servers:
   - url: https://zhanghongmac-mini.tail282e0b.ts.net
@@ -676,10 +676,10 @@ paths:
       operationId: submitCalibrationAdvisory
       summary: Submit ChatGPT's independent analysis and create a draft Prompt
       description: >
-        Assess user intent, current delivery, critic findings, and visual
-        evidence independently. Identify root causes, rank concrete changes,
-        write a concise Prompt patch, and define a retest. Cite only Asset IDs
-        in this bundle. The candidate remains a draft.
+        Separate reusable capability rules from case-specific retest checks.
+        Put only cross-topic behavior in capability_patch, current-video checks
+        in retest_spec, and reusable Skill, QA, template, tool, or operations
+        gaps in tooling_tasks. Cite only bound Asset IDs.
       parameters:
         - name: advisory_id
           in: path
@@ -1978,6 +1978,69 @@ components:
           items:
             type: integer
 
+    CalibrationRetestSpec:
+      type: object
+      additionalProperties: false
+      required: [instruction, acceptance_criteria, regression_checks]
+      properties:
+        instruction:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        acceptance_criteria:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+        regression_checks:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+
+    CalibrationToolingTask:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+        - category
+        - severity
+        - problem
+        - expected_outcome
+        - acceptance_criteria
+        - evidence_asset_ids
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 240
+        category:
+          type: string
+          enum: [skill, tool, template, qa, operations]
+        severity:
+          type: string
+          enum: [high, medium, low]
+        problem:
+          type: string
+          minLength: 1
+          maxLength: 6000
+        expected_outcome:
+          type: string
+          minLength: 1
+          maxLength: 6000
+        acceptance_criteria:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+        evidence_asset_ids:
+          type: array
+          maxItems: 20
+          items:
+            type: integer
+
     SubmitCalibrationAdvisoryRequest:
       type: object
       additionalProperties: false
@@ -1988,9 +2051,10 @@ components:
         - findings
         - priority_actions
         - stale_rules_to_drop
-        - prompt_patch
-        - retest_instruction
-        - acceptance_criteria
+        - persistent_capability_gaps
+        - capability_patch
+        - retest_spec
+        - tooling_tasks
         - limitations
       properties:
         executive_summary:
@@ -2023,22 +2087,24 @@ components:
           maxItems: 30
           items:
             type: string
-        prompt_patch:
+        persistent_capability_gaps:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+        capability_patch:
           type: array
           minItems: 1
           maxItems: 30
           items:
             type: string
-        retest_instruction:
-          type: string
-          minLength: 1
-          maxLength: 12000
-        acceptance_criteria:
+        retest_spec:
+          $ref: "#/components/schemas/CalibrationRetestSpec"
+        tooling_tasks:
           type: array
-          minItems: 1
-          maxItems: 20
+          maxItems: 10
           items:
-            type: string
+            $ref: "#/components/schemas/CalibrationToolingTask"
         limitations:
           type: array
           maxItems: 20
@@ -2092,6 +2158,46 @@ components:
           items:
             $ref: "#/components/schemas/CalibrationAdvisory"
 
+    CalibrationHistoryRound:
+      type: object
+      additionalProperties: false
+      required:
+        - advisory_id
+        - submission_id
+        - review_id
+        - review_verdict
+        - review_summary
+        - advisory_summary
+        - capability_patch
+        - tooling_task_titles
+        - created_at
+      properties:
+        advisory_id:
+          type: string
+        submission_id:
+          type: string
+        review_id:
+          type: string
+        review_verdict:
+          type: string
+        review_score:
+          type: number
+        review_summary:
+          type: string
+        advisory_summary:
+          type: string
+        capability_patch:
+          type: array
+          items:
+            type: string
+        tooling_task_titles:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
     CalibrationAdvisoryBundle:
       type: object
       additionalProperties: false
@@ -2104,6 +2210,7 @@ components:
         - submission
         - critic_review
         - evidence
+        - calibration_history
         - active_prompt_content_sha256
       properties:
         advisory:
@@ -2127,6 +2234,11 @@ components:
           $ref: "#/components/schemas/CalibrationReview"
         evidence:
           $ref: "#/components/schemas/CalibrationEvidence"
+        calibration_history:
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/CalibrationHistoryRound"
         active_prompt_content_sha256:
           type: string
 
@@ -2376,7 +2488,7 @@ components:
           type: string
         status:
           type: string
-          enum: [queued, researching, creating, reviewing, revising, waiting_approval, needs_user, blocked, ready_to_publish, published, paused, failed, canceled]
+          enum: [queued, researching, creating, reviewing, revising, waiting_approval, needs_user, blocked, ready_to_publish, published, completed, paused, failed, canceled]
         current_stage:
           type: string
         revision_count:

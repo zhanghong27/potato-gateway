@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
+from potato_gateway.adapters import HubClient, HubConflictError, HubUnavailableError
 from potato_gateway.models import (
     CalibrationAdvisoryBundle,
+    CalibrationHistoryRound,
     CalibrationAdvisoryListResponse,
     CalibrationAdvisoryResponse,
     CreateCalibrationAdvisoryRequest,
@@ -54,6 +56,7 @@ class CalibrationAdvisoryService:
         submission_service: CalibrationSubmissionService,
         review_service: CalibrationReviewService,
         prompt_service: PromptVersionService,
+        hub_client: HubClient,
     ) -> None:
         self.repository = repository
         self.session_repository = session_repository
@@ -62,6 +65,7 @@ class CalibrationAdvisoryService:
         self.submission_service = submission_service
         self.review_service = review_service
         self.prompt_service = prompt_service
+        self.hub_client = hub_client
 
     def create(
         self, session_id: str, request: CreateCalibrationAdvisoryRequest
@@ -168,6 +172,43 @@ class CalibrationAdvisoryService:
                 and turn.content.strip()
             ][-10:]
             active = self.prompt_service.active_version(session.agent_id)
+            history: list[CalibrationHistoryRound] = []
+            for prior in self.repository.list(
+                status="completed", session_id=record.session_id, limit=8
+            ):
+                if prior.advisory_id == record.advisory_id or not prior.analysis:
+                    continue
+                prior_analysis = SubmitCalibrationAdvisoryRequest.model_validate(
+                    prior.analysis
+                )
+                prior_review = self.review_repository.get(prior.review_id)
+                report = (
+                    prior_review.report
+                    if isinstance(prior_review.report, dict)
+                    else {}
+                )
+                score = report.get("total_score")
+                history.append(
+                    CalibrationHistoryRound(
+                        advisory_id=prior.advisory_id,
+                        submission_id=prior.submission_id,
+                        review_id=prior.review_id,
+                        review_verdict=str(report.get("verdict") or "unknown"),
+                        review_score=(
+                            float(score)
+                            if isinstance(score, (int, float))
+                            and not isinstance(score, bool)
+                            else None
+                        ),
+                        review_summary=str(report.get("summary") or ""),
+                        advisory_summary=prior_analysis.executive_summary,
+                        capability_patch=prior_analysis.capability_patch,
+                        tooling_task_titles=[
+                            task.title for task in prior_analysis.tooling_tasks
+                        ],
+                        created_at=prior.created_at,
+                    )
+                )
             return CalibrationAdvisoryBundle(
                 advisory=self._response(record),
                 agent_id=session.agent_id,
@@ -177,6 +218,7 @@ class CalibrationAdvisoryService:
                 submission=submission,
                 critic_review=review,
                 evidence=evidence,
+                calibration_history=history,
                 active_prompt_content_sha256=active.content_sha256,
             )
         except (
@@ -224,11 +266,16 @@ class CalibrationAdvisoryService:
                 asset_id
                 for action in analysis.priority_actions
                 for asset_id in action.evidence_asset_ids
+            } | {
+                asset_id
+                for task in analysis.tooling_tasks
+                for asset_id in task.evidence_asset_ids
             }
             if not cited_assets.issubset(allowed_assets):
                 raise CalibrationAdvisoryConflictError(
                     "analysis cites assets outside the advisory bundle"
                 )
+            self._dispatch_tooling_tasks(record, analysis)
             candidate, _created = self.prompt_service.create_advised_candidate(
                 agent_id=bundle.agent_id,
                 session_id=record.session_id,
@@ -241,6 +288,8 @@ class CalibrationAdvisoryService:
                 prompt_version_id=candidate.prompt_version_id,
             )
             return self._response(completed)
+        except HubConflictError as exc:
+            raise CalibrationAdvisoryConflictError(str(exc)) from None
         except (
             CalibrationAdvisoryConflictError,
             CalibrationAdvisoryNotFoundError,
@@ -256,9 +305,29 @@ class CalibrationAdvisoryService:
             CalibrationSubmissionServiceUnavailableError,
             CalibrationReviewServiceUnavailableError,
             PromptVersionServiceUnavailableError,
+            HubUnavailableError,
             ValidationError,
         ):
             raise CalibrationAdvisoryServiceUnavailableError from None
+
+    def _dispatch_tooling_tasks(
+        self,
+        record: CalibrationAdvisoryRecord,
+        analysis: SubmitCalibrationAdvisoryRequest,
+    ) -> None:
+        for index, task in enumerate(analysis.tooling_tasks, start=1):
+            self.hub_client.request(
+                "POST",
+                "/api/calibration-tooling-tasks",
+                {
+                    "client_request_id": f"tooling.{record.advisory_id}.{index}",
+                    "session_id": record.session_id,
+                    "advisory_id": record.advisory_id,
+                    "task_index": index,
+                    **task.model_dump(mode="json"),
+                },
+                sanitize=False,
+            )
 
     @staticmethod
     def _response(record: CalibrationAdvisoryRecord) -> CalibrationAdvisoryResponse:

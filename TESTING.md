@@ -6,7 +6,7 @@
 2. 删除旧 Action 配置并新建一个 Action，选择从 URL 导入：
    `https://zhanghongmac-mini.tail282e0b.ts.net/potato-actions-v0.2.7.yaml`
 3. Authentication 选择 API Key、Bearer，填入现有 `POTATO_GATEWAY_TOKEN`。
-4. 确认标题为 `Potato Gateway Actions Safe`、版本为 `0.2.7`，build 为 `chatgpt-advisory-short-desc-30ops-20260815`。
+4. 确认标题为 `Potato Gateway Actions Safe`、版本为 `0.2.7`，build 为 `split-capability-retest-tooling-30ops-20260816`。
 5. 保存后应识别 30 个 Actions，且不应出现 warning 或 skipped function。
 
 ## 历史交付包校准
@@ -40,11 +40,11 @@
 ```text
 当用户要求处理校准分析待办时：
 1. 调用 listCalibrationAdvisories(status=pending, limit=20)，选择用户指定的待办；未指定时选择最新一条。
-2. 调用 getCalibrationAdvisoryBundle。必须综合用户反馈、当前 Submission 的视频与交付摘要、酸辣土豆丝报告、逐帧描述、机械指标和 openaiFileResponse 中的 contact sheet。酸辣土豆丝只是证据来源，不是最终结论。
+2. 调用 getCalibrationAdvisoryBundle。必须综合当前证据和 calibration_history，识别跨轮次持续问题。酸辣土豆丝只是证据来源，不是最终结论。
 3. 先独立判断用户真正不满意的结果、值得保留的部分和根因，再按影响排序下一步操作。不要复述或拼接历史评语。
-4. prompt_patch 只写少量、可执行、可验证且不互相冲突的长期行为规则；不要贴完整 Prompt，不要把评审原文或单个视频的偶然细节塞进规则。
-5. retest_instruction 必须能独立执行，acceptance_criteria 必须可检查。证据只能引用 bundle 中真实存在的 Asset ID。
-6. 调用 submitCalibrationAdvisory 写回结构化分析。它只创建 draft，不能自行激活。
+4. capability_patch 只写跨题材可复用的能力规则，禁止包含当前视频的 Beat、时间点、素材名和专有文案。
+5. retest_spec 保存本轮任务、验收标准和历史回归检查；需要改 Skill、工具、模板、QA 或运维时写入 tooling_tasks。证据只能引用 bundle 中真实存在的 Asset ID。
+6. 调用 submitCalibrationAdvisory 写回结构化分析。它只创建 draft；tooling_tasks 只会触发薯码宝贝只读诊断，持久化修改仍需审批。
 ```
 
 验收步骤：
@@ -53,9 +53,9 @@
 2. 打开 `Prompt 改进`，点击“交给 ChatGPT 深度分析”。页面应显示一个 `cala_...` 待办，并明确说明没有本地模型在后台运行。
 3. 在“土豆总指挥”发送：“处理最新的 ChatGPT 校准分析待办。”
 4. GPT 应依次调用 `listCalibrationAdvisories`、`getCalibrationAdvisoryBundle` 和 `submitCalibrationAdvisory`。如果图片文件能进入视觉上下文，应查看 contact sheet；否则必须使用逐帧文字、时间戳和 critic 报告，并在 limitations 中说明限制。
-5. 校准页应在后台同步后显示“ChatGPT 深度校准已完成”，包括独立诊断、根因、优化优先级、证据、精炼 Prompt patch 和隔离复测要求。
+5. 校准页应分别显示 Capability Patch、Retest Spec 和 Tooling Tasks，三者不得混排。
 6. 点击“使用 ChatGPT 草案复测”。正式 Prompt 在你人工激活前不得改变。
-7. 新候选的 managed addendum 只能包含当前 ChatGPT 提炼规则，不得再次累积用户评语、critic 原文或旧校准历史。
+7. 新候选的 managed addendum 只能包含 Capability Patch，不得包含 Retest Spec、用户评语、critic 原文或旧校准历史。
 
 同一 Submission 和 review 同时最多只有一个 pending 待办；重复点击应返回原待办。跨 Session 来源或引用 bundle 外 Asset ID 必须拒绝。
 

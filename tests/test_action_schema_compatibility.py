@@ -48,7 +48,7 @@ def test_custom_gpt_action_schema_uses_explicit_objects_and_parameters() -> None
     assert document["info"]["version"] == "0.2.7"
     assert (
         document["info"]["x-potato-schema-build"]
-        == "chatgpt-advisory-short-desc-30ops-20260815"
+        == "split-capability-retest-tooling-30ops-20260816"
     )
 
     operation_ids: list[str] = []
