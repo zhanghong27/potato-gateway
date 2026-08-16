@@ -70,6 +70,9 @@ def test_calibration_console_exposes_session_lifecycle_controls(
     assert "评审与证据" in response.text
     assert "Prompt 改进" in response.text
     assert "重新获取播放链接" in response.text
+    assert "schedulePlaybackRefresh" in response.text
+    assert "refreshVisiblePlaybackLinks" in response.text
+    assert "playbackRefreshPromises" in response.text
     assert "候选版本产物" in response.text
     assert "createAdvisory()" in response.text
     assert "创建 ChatGPT 校准任务" in response.text

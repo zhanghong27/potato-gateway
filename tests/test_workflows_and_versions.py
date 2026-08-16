@@ -590,10 +590,12 @@ def test_creator_calibration_review_returns_scoped_signed_evidence(
     ).json()
     assert evidence["frames"][0]["description"] == "Static opening"
     assert len(evidence["openaiFileResponse"]) == 1
-    ui_link = client.get(
+    ui_link_response = client.get(
         f"/api/calibrations/{session['session_id']}/assets/41/link",
         headers=headers(),
-    ).json()
+    )
+    assert ui_link_response.headers["cache-control"] == "no-store"
+    ui_link = ui_link_response.json()
     assert ui_link["available"] is True
     assert ui_link["status"] == "active"
     assert ui_link["playback_error"] == ""

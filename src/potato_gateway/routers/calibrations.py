@@ -1009,8 +1009,10 @@ def list_calibration_reviews(
 def get_calibration_asset_link(
     session_id: Annotated[str, Path(min_length=1, max_length=128)],
     asset_id: Annotated[int, Path(gt=0)],
+    response: Response,
     service: Annotated[CalibrationReviewService, Depends(get_calibration_review_service)],
 ) -> dict[str, object]:
+    response.headers["Cache-Control"] = "no-store"
     if not service.review_repository.asset_belongs_to_session(session_id, asset_id):
         raise HTTPException(status_code=404, detail="Calibration asset not found")
     hub_available = True
