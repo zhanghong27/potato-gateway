@@ -605,3 +605,18 @@ def test_openapi_contains_all_calibration_operation_ids(
     assert schema["paths"]["/api/agents/{agent_id}/profile"]["get"][
         "operationId"
     ] == "getAgentProfile"
+
+
+def test_advisory_id_sent_to_session_endpoint_returns_actionable_error(
+    gateway: CalibrationFixture,
+) -> None:
+    response = gateway.client.get(
+        "/api/calibrations/cala_034561164c644b6b899b4257d7ff9367",
+        headers=_headers(),
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "advisory ID" in detail
+    assert "listCalibrationAdvisories" in detail
+    assert "getCalibrationAdvisoryBundle" in detail

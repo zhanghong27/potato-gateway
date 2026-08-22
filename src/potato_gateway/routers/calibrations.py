@@ -339,6 +339,15 @@ def get_calibration_session(
     request: Request,
     service: Annotated[CalibrationService, Depends(get_calibration_service)],
 ) -> CalibrationSessionResponse:
+    if session_id.startswith("cala_"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "This is a calibration advisory ID, not a calibration session ID. "
+                "Call listCalibrationAdvisories with status=pending, then "
+                "getCalibrationAdvisoryBundle with this advisory_id."
+            ),
+        )
     try:
         session = service.get_session(session_id)
     except CalibrationSessionNotFoundError:
