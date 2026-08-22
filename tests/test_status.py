@@ -111,6 +111,22 @@ def test_calibration_console_promotes_running_baseline_progress(
     assert "baseline-running" in response.text
 
 
+def test_calibration_console_restores_location_after_refresh(
+    client: TestClient,
+) -> None:
+    response = client.get("/calibrations")
+
+    assert response.status_code == 200
+    assert "function restoreLocationState()" in response.text
+    assert "function persistLocationState()" in response.text
+    assert "history.replaceState" in response.text
+    assert "params.get('agent')" in response.text
+    assert "params.get('session')" in response.text
+    assert "params.get('tab')" in response.text
+    assert "params.get('archived')==='1'" in response.text
+    assert "agent==='creator'?api(`/api/calibrations/${sessionId}/submissions`)" in response.text
+
+
 def test_versioned_action_schema_is_public_and_not_cached(client: TestClient) -> None:
     response = client.get("/potato-actions-v0.2.8.yaml")
 
