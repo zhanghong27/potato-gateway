@@ -25,11 +25,11 @@ from potato_gateway.routers import (
 
 LOGGER_NAME = "potato_gateway"
 ACTION_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "gpt-action-openapi.yaml"
-ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.7.yaml"
-LEGACY_ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.6.yaml"
-OLDER_ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.5.yaml"
-OLDEST_ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.4.yaml"
-ACTION_SCHEMA_BUILD = "split-capability-retest-tooling-30ops-20260816"
+ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.8.yaml"
+LEGACY_ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.7.yaml"
+OLDER_ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.6.yaml"
+OLDEST_ACTION_SCHEMA_ROUTE = "/potato-actions-v0.2.5.yaml"
+ACTION_SCHEMA_BUILD = "explicit-tooling-tasks-30ops-20260822"
 
 
 def configure_logging(log_level: str) -> None:

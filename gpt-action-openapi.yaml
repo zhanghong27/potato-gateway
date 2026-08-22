@@ -6,8 +6,8 @@ info:
     API for checking Hong's Potato multi-agent system, inspecting registered
     Hermes Agent profiles, running visible multi-agent video workflows, and
     managing structured calibration sessions.
-  version: 0.2.7
-  x-potato-schema-build: split-capability-retest-tooling-30ops-20260816
+  version: 0.2.8
+  x-potato-schema-build: explicit-tooling-tasks-30ops-20260822
 
 servers:
   - url: https://zhanghongmac-mini.tail282e0b.ts.net
@@ -676,10 +676,10 @@ paths:
       operationId: submitCalibrationAdvisory
       summary: Submit ChatGPT's independent analysis and create a draft Prompt
       description: >
-        Separate reusable capability rules from case-specific retest checks.
-        Put only cross-topic behavior in capability_patch, current-video checks
-        in retest_spec, and reusable Skill, QA, template, tool, or operations
-        gaps in tooling_tasks. Cite only bound Asset IDs.
+        Put reusable Agent rules in capability_patch, case checks in retest_spec,
+        and Skill, QA, template, tool, or operations gaps in the supported
+        top-level tooling_tasks array. Never move engineer tasks into
+        priority_actions. Cite only bound Asset IDs.
       parameters:
         - name: advisory_id
           in: path
@@ -2102,6 +2102,7 @@ components:
           $ref: "#/components/schemas/CalibrationRetestSpec"
         tooling_tasks:
           type: array
+          description: Structured engineer tasks dispatched to Potato Hub after submission.
           maxItems: 10
           items:
             $ref: "#/components/schemas/CalibrationToolingTask"

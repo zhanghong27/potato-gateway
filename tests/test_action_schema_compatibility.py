@@ -45,10 +45,10 @@ def test_custom_gpt_action_schema_uses_explicit_objects_and_parameters() -> None
     schemas = document["components"]["schemas"]
 
     assert document["openapi"] == "3.1.0"
-    assert document["info"]["version"] == "0.2.7"
+    assert document["info"]["version"] == "0.2.8"
     assert (
         document["info"]["x-potato-schema-build"]
-        == "split-capability-retest-tooling-30ops-20260816"
+        == "explicit-tooling-tasks-30ops-20260822"
     )
 
     operation_ids: list[str] = []

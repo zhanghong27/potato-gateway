@@ -46,7 +46,7 @@ HOME_HTML = r'''<!doctype html>
     </section>
     <section class="tools"><div class="tools-head"><h2>工具</h2></div><div class="tools-list">
       <a class="tool" href="/docs"><div class="tool-icon">API</div><div><strong>接口文档</strong><span>Swagger UI</span></div><div class="go">→</div></a>
-      <a class="tool" href="/potato-actions-v0.2.7.yaml"><div class="tool-icon">YML</div><div><strong>Actions Schema</strong><span>OpenAPI 3.1</span></div><div class="go">→</div></a>
+      <a class="tool" href="/potato-actions-v0.2.8.yaml"><div class="tool-icon">YML</div><div><strong>Actions Schema</strong><span>OpenAPI 3.1</span></div><div class="go">→</div></a>
       <a class="tool" id="hubHome" href="http://127.0.0.1:8787/"><div class="tool-icon">HUB</div><div><strong>Hub 消息台</strong><span>Session 与素材</span></div><div class="go">→</div></a>
     </div></section>
     <section id="agents" aria-labelledby="agentsTitle"><div class="agents-heading"><h2 id="agentsTitle">土豆状态</h2><span id="agentUpdated">正在连接</span></div><div class="agent-row" id="agentRow"><div class="agent-empty">正在读取四只土豆的状态…</div></div></section>
