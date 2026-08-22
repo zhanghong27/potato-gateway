@@ -99,6 +99,18 @@ def test_calibration_console_exposes_session_lifecycle_controls(
     assert "/api/admin/agents/${agent}/prompt-versions/${promptVersionId}" in response.text
 
 
+def test_calibration_console_promotes_running_baseline_progress(
+    client: TestClient,
+) -> None:
+    response = client.get("/calibrations")
+
+    assert response.status_code == 200
+    assert "function latestBaselineExecution()" in response.text
+    assert "正在执行基准测试" in response.text
+    assert "查看基准执行记录" in response.text
+    assert "baseline-running" in response.text
+
+
 def test_versioned_action_schema_is_public_and_not_cached(client: TestClient) -> None:
     response = client.get("/potato-actions-v0.2.8.yaml")
 
